@@ -2,7 +2,7 @@
 
 ## Provenance
 
-All 5 sample files in this directory are **real Wikipedia articles** sourced from HuggingFace via:
+The 5 `wiki_*.txt` sample files in this directory are **real Wikipedia articles** sourced from HuggingFace via:
 
 ```bash
 python3 tooling/fetch_w7_datasets.py --app studybot
@@ -15,6 +15,14 @@ python3 tooling/fetch_w7_datasets.py --app studybot
 | `wiki_03_mathematics.txt` | Mathematics | https://simple.wikipedia.org/wiki/Mathematics |
 | `wiki_04_photosynthesis.txt` | Photosynthesis | https://simple.wikipedia.org/wiki/Photosynthesis |
 | `wiki_05_energy.txt` | Energy | https://simple.wikipedia.org/wiki/Energy |
+
+## Generated lecture PDF
+
+| File | Description | License |
+|------|-------------|---------|
+| `ai_study_buddy_40_slide_lecture.pdf` | Synthetic 40-slide StudyBot lecture deck for upload, summary, quiz, dashboard, citation, chunking, and retrieval-quality tests. Includes table-like rows, figure caption text, equation text, code-like text, and explicit `Slide N` markers. | Project sample data |
+
+This PDF is generated sample content, not copied from an external source. It is intended for local demos of the user story: upload a 40-slide lecture PDF and receive a one-page summary with five testable concepts.
 
 ## HuggingFace dataset
 

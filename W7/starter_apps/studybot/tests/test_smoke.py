@@ -65,6 +65,9 @@ def test_query_returns_answer_after_upload():
     assert r.status_code == 200, r.text
     body = r.json()
     assert "answer" in body
+    assert "[chunk" not in body["answer"].lower()
+    assert "source:" not in body["answer"].lower()
+    assert "retrieved chunks" not in body["answer"].lower()
     assert isinstance(body["citations"], list)
     # Local vector index should find at least one hit for the keyword 'gradient'
     assert len(body["citations"]) >= 1

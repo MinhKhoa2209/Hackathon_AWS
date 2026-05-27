@@ -11,3 +11,8 @@ W7/starter_apps/*/frontend/node_modules/
 W7/starter_apps/*/frontend/dist/
 W7/starter_apps/*/_data/
 *.db
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfplan
+W7/starter_apps/*/_build/

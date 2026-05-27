@@ -1,5 +1,5 @@
 import { BookOpen, Moon, Sun, WifiOff } from "lucide-react";
-import { apiBase, userId, type HealthResponse } from "../api";
+import { getApiBase, getUserId, type HealthResponse } from "../api";
 import type { Dictionary, Language } from "../i18n";
 
 type Props = {
@@ -12,6 +12,9 @@ type Props = {
 };
 
 export function Header({ t, language, onLanguageChange, health, theme, onThemeToggle }: Props) {
+  const apiBase = getApiBase();
+  const displayUser = getUserId();
+
   return (
     <header className="app-header">
       <div className="mx-auto flex h-full max-w-none items-center gap-2 px-3 sm:px-4">
@@ -124,9 +127,9 @@ export function Header({ t, language, onLanguageChange, health, theme, onThemeTo
               className="grid h-5 w-5 place-items-center rounded-full text-white text-[10px] font-bold shrink-0"
               style={{ background: "linear-gradient(135deg, #7c3aed, #06b6d4)" }}
             >
-              {userId.charAt(0).toUpperCase()}
+              {displayUser.charAt(0).toUpperCase()}
             </span>
-            <span className="hidden md:block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{userId}</span>
+            <span className="hidden md:block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{displayUser}</span>
           </div>
 
           {/* Theme toggle */}

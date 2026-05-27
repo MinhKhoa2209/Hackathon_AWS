@@ -1,4 +1,4 @@
-import { FileText, Layers, Library, ListChecks, RefreshCw, Sparkles } from "lucide-react";
+import { FileText, Layers, Library, ListChecks, RefreshCw, ScrollText, Sparkles } from "lucide-react";
 import type { StudyDoc } from "../api";
 import type { Dictionary } from "../i18n";
 
@@ -14,6 +14,7 @@ type Props = {
   onReviewCards: (doc: StudyDoc) => void;
   onGenerateQuiz: (doc: StudyDoc) => void;
   onTakeQuiz: (doc: StudyDoc) => void;
+  onGenerateSummary: (doc: StudyDoc) => void;
 };
 
 export function DocumentLibrary({
@@ -28,6 +29,7 @@ export function DocumentLibrary({
   onReviewCards,
   onGenerateQuiz,
   onTakeQuiz,
+  onGenerateSummary,
 }: Props) {
   return (
     <div className="animate-fade-scale">
@@ -134,6 +136,17 @@ export function DocumentLibrary({
                 {/* Action row */}
                 <div className="action-row">
                   {/* Review / Load */}
+                  <button
+                    className="btn-secondary text-xs"
+                    onClick={() => onGenerateSummary(doc)}
+                    disabled={isBusy}
+                    id={`gen-summary-${doc.doc_id.slice(0, 8)}`}
+                    title={t.generateSummary}
+                  >
+                    {isBusy ? <SpinnerMini /> : <ScrollText className="h-3.5 w-3.5" />}
+                    {t.summaryTitle}
+                  </button>
+
                   <button
                     className="btn-secondary text-xs"
                     onClick={() => onReviewCards(doc)}

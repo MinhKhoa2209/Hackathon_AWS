@@ -52,6 +52,7 @@ def test_quiz_lifecycle():
     assert len(q["options"]) == 4
     assert "correct_option" in q
     assert "explanation" in q
+    assert not q["question"].startswith("Which statement is supported by the uploaded notes?")
     
     # 3. List quizzes
     r_list = client.get(

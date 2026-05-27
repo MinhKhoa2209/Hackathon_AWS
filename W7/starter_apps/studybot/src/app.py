@@ -10,7 +10,7 @@ The choice is yours. Code stays the same.
 """
 from pathlib import Path
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -42,14 +42,17 @@ userstore = factory.make_userstore()
 vector_store = factory.make_vector()
 
 
-def _resolve_user_id(x_user_id: str | None) -> str:
-    """Auth abstraction: extract user_id from header, fall back to default for local dev.
-
-    In production you populate X-User-Id from:
-      - Cognito JWT (decoded by API Gateway authorizer)
-      - Signed URL claim
-      - Custom auth Lambda
-    """
+def _resolve_user_id(request: Request, x_user_id: str | None) -> str:
+    """Resolve user identity from gateway claims when present, then demo header."""
+    event = request.scope.get("aws.event") or {}
+    claims = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("jwt", {})
+        .get("claims", {})
+    )
+    if claims.get("sub"):
+        return claims["sub"]
     return x_user_id or config.default_user_id
 
 
@@ -72,10 +75,11 @@ def health() -> dict:
 
 @app.post("/upload")
 async def upload(
+    request: Request,
     file: UploadFile = File(...),
     x_user_id: str | None = Header(default=None),
 ) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+    user_id = _resolve_user_id(request, x_user_id)
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -90,14 +94,15 @@ async def upload(
 
 
 @app.post("/query")
-def query(req: QueryRequest, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def query(req: QueryRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Empty question")
     return handlers.handle_query(
         user_id=user_id,
         question=req.question,
         ai_client=ai_client,
+        storage=storage,
         userstore=userstore,
         vector_store=vector_store,
         vector_backend=config.vector_backend,
@@ -106,13 +111,39 @@ def query(req: QueryRequest, x_user_id: str | None = Header(default=None)) -> di
 
 
 @app.get("/docs/list")
-def list_docs(x_user_id: str | None = Header(default=None)) -> dict:
-    return handlers.handle_list_docs(_resolve_user_id(x_user_id), userstore)
+def list_docs(request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    return handlers.handle_list_docs(_resolve_user_id(request, x_user_id), userstore)
 
 
 @app.get("/queries/recent")
-def recent(x_user_id: str | None = Header(default=None), limit: int = 10) -> dict:
-    return handlers.handle_recent_queries(_resolve_user_id(x_user_id), userstore, limit=limit)
+def recent(request: Request, x_user_id: str | None = Header(default=None), limit: int = 10) -> dict:
+    return handlers.handle_recent_queries(_resolve_user_id(request, x_user_id), userstore, limit=limit)
+
+
+@app.get("/dashboard")
+def dashboard(request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    return handlers.handle_dashboard(_resolve_user_id(request, x_user_id), userstore)
+
+
+class SummaryGenerateRequest(BaseModel):
+    doc_id: str
+
+
+@app.post("/summary/generate")
+def generate_summary(req: SummaryGenerateRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
+    try:
+        return handlers.handle_generate_summary(
+            user_id=user_id,
+            doc_id=req.doc_id,
+            storage=storage,
+            userstore=userstore,
+            ai_client=ai_client,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class FlashcardGenerateRequest(BaseModel):
@@ -121,8 +152,8 @@ class FlashcardGenerateRequest(BaseModel):
 
 
 @app.post("/flashcards/generate")
-def generate_flashcards(req: FlashcardGenerateRequest, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def generate_flashcards(req: FlashcardGenerateRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     try:
         return handlers.handle_generate_flashcards(
             user_id=user_id,
@@ -139,14 +170,14 @@ def generate_flashcards(req: FlashcardGenerateRequest, x_user_id: str | None = H
 
 
 @app.get("/flashcards")
-def list_flashcards(doc_id: str | None = None, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def list_flashcards(request: Request, doc_id: str | None = None, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     return handlers.handle_list_flashcards(user_id, doc_id, userstore)
 
 
 @app.delete("/flashcards/{flashcard_id}")
-def delete_flashcard(flashcard_id: str, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def delete_flashcard(flashcard_id: str, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     return handlers.handle_delete_flashcard(user_id, flashcard_id, userstore)
 
 
@@ -156,8 +187,8 @@ class QuizGenerateRequest(BaseModel):
 
 
 @app.post("/quiz/generate")
-def generate_quiz(req: QuizGenerateRequest, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def generate_quiz(req: QuizGenerateRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     try:
         return handlers.handle_generate_quiz(
             user_id=user_id,
@@ -174,14 +205,14 @@ def generate_quiz(req: QuizGenerateRequest, x_user_id: str | None = Header(defau
 
 
 @app.get("/quiz")
-def list_quizzes(doc_id: str | None = None, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def list_quizzes(request: Request, doc_id: str | None = None, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     return handlers.handle_list_quizzes(user_id, doc_id, userstore)
 
 
 @app.delete("/quiz/{quiz_id}")
-def delete_quiz(quiz_id: str, x_user_id: str | None = Header(default=None)) -> dict:
-    user_id = _resolve_user_id(x_user_id)
+def delete_quiz(quiz_id: str, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
     return handlers.handle_delete_quiz(user_id, quiz_id, userstore)
 
 

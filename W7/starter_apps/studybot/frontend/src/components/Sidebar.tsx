@@ -5,13 +5,15 @@ import {
   PanelLeftOpen,
   HelpCircle,
   Layers,
+  LayoutDashboard,
   Library,
   MessageSquareText,
+  ScrollText,
   UploadCloud,
 } from "lucide-react";
 import type { Dictionary } from "../i18n";
 
-export type TabId = "upload" | "library" | "ask" | "cards" | "quiz" | "dev";
+export type TabId = "dashboard" | "upload" | "library" | "summary" | "ask" | "cards" | "quiz" | "dev";
 
 type Props = {
   t: Dictionary;
@@ -25,16 +27,20 @@ type Props = {
 };
 
 const navItems: { id: TabId; icon: React.ElementType; labelKey: keyof Dictionary; accent?: string }[] = [
+  { id: "dashboard", icon: LayoutDashboard, labelKey: "dashboardTitle", accent: "#10b981" },
   { id: "upload",  icon: UploadCloud,       labelKey: "uploadTitle",   accent: "#7c3aed" },
   { id: "library", icon: Library,            labelKey: "libraryTitle",  accent: "#06b6d4" },
+  { id: "summary", icon: ScrollText,         labelKey: "summaryTitle",  accent: "#10b981" },
   { id: "ask",     icon: MessageSquareText,  labelKey: "askTitle",      accent: "#8b5cf6" },
   { id: "cards",   icon: Layers,             labelKey: "cardsTitle",    accent: "#7c3aed" },
   { id: "quiz",    icon: HelpCircle,         labelKey: "quizTitle",     accent: "#06b6d4" },
 ];
 
 const shortLabels: Record<TabId, { en: string; vi: string }> = {
+  dashboard: { en: "Dashboard", vi: "Bảng học" },
   upload:  { en: "Upload",  vi: "Tải lên" },
   library: { en: "Library", vi: "Thư viện" },
+  summary: { en: "Summary", vi: "Tóm tắt" },
   ask:     { en: "Ask AI",  vi: "Hỏi AI" },
   cards:   { en: "Cards",   vi: "Thẻ học" },
   quiz:    { en: "Quiz",    vi: "Quiz" },
