@@ -5,3 +5,6 @@ __pycache__/
 _data/
 .pytest_cache/
 *.egg-info/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
