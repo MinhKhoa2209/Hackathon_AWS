@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
+  configureApi,
+  loadRuntimeConfig,
+  type DashboardResponse,
   type DebugEntry,
   type Flashcard,
   type HealthResponse,
   type QueryResponse,
   type QuizQuestion,
+  type StudySummary,
   type StudyDoc
 } from "./api";
+import { DashboardPanel } from "./components/DashboardPanel";
 import { DebugPanel } from "./components/DebugPanel";
 import { DocumentLibrary } from "./components/DocumentLibrary";
 import { FlashcardDeck } from "./components/FlashcardDeck";
@@ -15,6 +20,7 @@ import { Header } from "./components/Header";
 import { QuestionPanel } from "./components/QuestionPanel";
 import { QuizPanel } from "./components/QuizPanel";
 import { Sidebar, type TabId } from "./components/Sidebar";
+import { SummaryPanel } from "./components/SummaryPanel";
 import { ToastHost } from "./components/ToastHost";
 import { UploadPanel } from "./components/UploadPanel";
 import { dictionaries, getInitialLanguage, languageStorageKey, type Language } from "./i18n";
@@ -24,6 +30,8 @@ import type { Toast, ToastType } from "./toast";
 const themeStorageKey = "studybot.theme";
 const activeTabStorageKey = "studybot.activeTab";
 const sidebarCollapsedKey = "studybot.sidebarCollapsed";
+const selectedDocStorageKey = "studybot.selectedDocId";
+const answerStorageKey = "studybot.lastAnswer.v2";
 
 function getInitialTheme(): "dark" | "light" {
   if (typeof window === "undefined") return "dark";
@@ -34,7 +42,7 @@ function getInitialTheme(): "dark" | "light" {
 
 function getInitialTab(): TabId {
   const stored = localStorage.getItem(activeTabStorageKey) as TabId | null;
-  if (stored && ["upload", "library", "ask", "cards", "quiz", "dev"].includes(stored)) return stored;
+  if (stored && ["dashboard", "upload", "library", "summary", "ask", "cards", "quiz", "dev"].includes(stored)) return stored;
   return "upload";
 }
 
@@ -53,6 +61,8 @@ type BusyState = {
   upload: boolean;
   ask: boolean;
   docs: boolean;
+  dashboard: boolean;
+  summary: boolean;
   docId: string | null;
 };
 
@@ -60,6 +70,8 @@ const initialBusy: BusyState = {
   upload: false,
   ask: false,
   docs: false,
+  dashboard: false,
+  summary: false,
   docId: null
 };
 
@@ -86,6 +98,9 @@ export function App() {
   const [docs, setDocs] = useState<StudyDoc[]>([]);
   const [selectedDoc, setSelectedDoc] = useState<StudyDoc | null>(null);
   const [answer, setAnswer] = useState<QueryResponse | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [summary, setSummary] = useState<StudySummary | null>(null);
+  const [generatedSummaryDocId, setGeneratedSummaryDocId] = useState<string | null>(null);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [quiz, setQuiz] = useState<QuizQuestion[]>([]);
   const [busy, setBusy] = useState<BusyState>(initialBusy);
@@ -103,8 +118,18 @@ export function App() {
     localStorage.setItem(activeTabStorageKey, activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (selectedDoc?.doc_id) localStorage.setItem(selectedDocStorageKey, selectedDoc.doc_id);
+  }, [selectedDoc?.doc_id]);
+
   function toggleTheme() {
     setTheme((v) => (v === "dark" ? "light" : "dark"));
+  }
+
+  function selectDoc(doc: StudyDoc) {
+    setSelectedDoc(doc);
+    setSummary(null);
+    setGeneratedSummaryDocId(null);
   }
 
   const addDebug = useCallback((entry: Omit<DebugEntry, "id" | "createdAt">) => {
@@ -134,7 +159,10 @@ export function App() {
       const response = await api.listDocs(addDebug);
       setDocs(response.docs);
       setSelectedDoc((current) => {
-        if (!current) return response.docs[0] || null;
+        if (!current) {
+          const storedDocId = localStorage.getItem(selectedDocStorageKey);
+          return response.docs.find((doc) => doc.doc_id === storedDocId) || response.docs[0] || null;
+        }
         return response.docs.find((doc) => doc.doc_id === current.doc_id) || response.docs[0] || null;
       });
     } catch (error) {
@@ -144,16 +172,53 @@ export function App() {
     }
   }, [addDebug, showToast, t.actionFailed]);
 
+  const refreshDashboard = useCallback(async () => {
+    setBusy((value) => ({ ...value, dashboard: true }));
+    try {
+      const response = await api.dashboard(addDebug);
+      setDashboard(response);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+    } finally {
+      setBusy((value) => ({ ...value, dashboard: false }));
+    }
+  }, [addDebug, showToast, t.actionFailed]);
+
   useEffect(() => {
     window.localStorage.setItem(languageStorageKey, language);
   }, [language]);
 
   useEffect(() => {
-    api.health(addDebug)
-      .then((response) => setHealth(response))
-      .catch(() => setHealth(null));
-    void refreshDocs();
-  }, [addDebug, refreshDocs]);
+    let cancelled = false;
+
+    async function boot() {
+      localStorage.removeItem("studybot.summaries.v2");
+      localStorage.removeItem(answerStorageKey);
+      const config = await loadRuntimeConfig();
+      configureApi({
+        apiBaseUrl: config.apiBaseUrl,
+        userId: undefined
+      });
+      if (cancelled) return;
+      api.health(addDebug)
+        .then((response) => setHealth(response))
+        .catch(() => setHealth(null));
+      setAnswer(null);
+      void refreshDocs();
+      void refreshDashboard();
+      api.listFlashcards(undefined, addDebug)
+        .then((response) => setFlashcards(response.flashcards))
+        .catch(() => undefined);
+      api.listQuiz(undefined, addDebug)
+        .then((response) => setQuiz(response.quizzes))
+        .catch(() => undefined);
+    }
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
+  }, [addDebug, refreshDashboard, refreshDocs]);
 
   async function upload(files: File[]) {
     if (!files.length) return;
@@ -171,6 +236,9 @@ export function App() {
         "success"
       );
       await refreshDocs();
+      setSummary(null);
+      setGeneratedSummaryDocId(null);
+      void refreshDashboard();
     } catch (error) {
       showToast(`${t.uploadError}: ${error instanceof Error ? error.message : t.actionFailed}`, "error");
     } finally {
@@ -180,9 +248,11 @@ export function App() {
 
   async function ask(question: string) {
     setBusy((value) => ({ ...value, ask: true }));
+    setAnswer(null);
     try {
       const response = await api.query(question, addDebug);
       setAnswer(response);
+      void refreshDashboard();
     } catch (error) {
       showToast(error instanceof Error ? error.message : t.actionFailed, "error");
     } finally {
@@ -205,14 +275,59 @@ export function App() {
     }
   }
 
+  async function generateSummary(doc: StudyDoc) {
+    setSelectedDoc(doc);
+    setGeneratedSummaryDocId(doc.doc_id);
+    const pending: StudySummary = {
+      id: `summary_${doc.doc_id}`,
+      doc_id: doc.doc_id,
+      filename: doc.filename || doc.doc_id,
+      summary: "",
+      testable_concepts: [],
+      status: "processing",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    setSummary(pending);
+    setBusy((value) => ({ ...value, summary: true, docId: doc.doc_id }));
+    try {
+      const response = await api.generateSummary(doc.doc_id, addDebug);
+      const completed = {
+        ...response,
+        id: response.id || `summary_${doc.doc_id}`,
+        status: "completed" as const,
+        created_at: response.created_at || pending.created_at,
+        updated_at: new Date().toISOString()
+      };
+      setSummary(completed);
+      showToast(t.summaryGenerated, "success");
+      setActiveTab("summary");
+    } catch (error) {
+      const failed = { ...pending, status: "failed" as const, updated_at: new Date().toISOString() };
+      setSummary(failed);
+      showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+    } finally {
+      setBusy((value) => ({ ...value, summary: false, docId: null }));
+    }
+  }
+
+  const visibleSummary =
+    summary && selectedDoc && generatedSummaryDocId === selectedDoc.doc_id
+      ? summary
+      : null;
+
   async function generateFlashcards(doc: StudyDoc) {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
       const response = await api.generateFlashcards(doc.doc_id, 5, addDebug);
-      setFlashcards(response.flashcards);
+      setFlashcards((items) => [
+        ...response.flashcards,
+        ...items.filter((item) => item.doc_id !== doc.doc_id)
+      ]);
       showToast(t.cardsGenerated, "success");
       setActiveTab("cards");
+      void refreshDashboard();
     } catch (error) {
       showToast(error instanceof Error ? error.message : t.actionFailed, "error");
     } finally {
@@ -247,10 +362,14 @@ export function App() {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
-      const response = await api.generateQuiz(doc.doc_id, 5, addDebug);
-      setQuiz(response.quizzes);
+      const response = await api.generateQuiz(doc.doc_id, 10, addDebug);
+      setQuiz((items) => [
+        ...response.quizzes,
+        ...items.filter((item) => item.doc_id !== doc.doc_id)
+      ]);
       showToast(t.quizGenerated, "success");
       setActiveTab("quiz");
+      void refreshDashboard();
     } catch (error) {
       showToast(error instanceof Error ? error.message : t.actionFailed, "error");
     } finally {
@@ -300,6 +419,15 @@ export function App() {
               <UploadPanel t={t} busy={busy.upload} onUpload={upload} existingDocs={docs} />
             )}
 
+            {activeTab === "dashboard" && (
+              <DashboardPanel
+                t={t}
+                dashboard={dashboard}
+                loading={busy.dashboard}
+                onRefresh={refreshDashboard}
+              />
+            )}
+
             {activeTab === "library" && (
               <DocumentLibrary
                 t={t}
@@ -308,16 +436,27 @@ export function App() {
                 loading={busy.docs}
                 busyDocId={busy.docId}
                 onRefresh={refreshDocs}
-                onSelect={setSelectedDoc}
+                onSelect={selectDoc}
                 onGenerateCards={generateFlashcards}
                 onReviewCards={loadFlashcards}
                 onGenerateQuiz={generateQuiz}
                 onTakeQuiz={loadQuiz}
+                onGenerateSummary={generateSummary}
+              />
+            )}
+
+            {activeTab === "summary" && (
+              <SummaryPanel
+                t={t}
+                doc={selectedDoc}
+                summary={visibleSummary}
+                busy={busy.summary}
+                onGenerate={generateSummary}
               />
             )}
 
             {activeTab === "ask" && (
-              <QuestionPanel t={t} busy={busy.ask} answer={answer} onAsk={ask} />
+              <QuestionPanel t={t} busy={busy.ask} answer={answer} docs={docs} onAsk={ask} />
             )}
 
             {activeTab === "cards" && (

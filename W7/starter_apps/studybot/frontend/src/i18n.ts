@@ -1,6 +1,8 @@
 export type Language = "en" | "vi";
 
-export type Dictionary = typeof dictionaries.en;
+export type Dictionary = {
+  readonly [K in keyof typeof dictionaries.en]: string;
+};
 
 export const dictionaries = {
   en: {
@@ -21,6 +23,17 @@ export const dictionaries = {
     uploadDone: "Uploaded and indexed",
     uploadDoneMany: "Files uploaded and indexed",
     uploadError: "Upload failed",
+    dashboardTitle: "Weekly dashboard",
+    loadingDashboard: "Loading weekly study activity",
+    noDashboard: "No dashboard data yet.",
+    activeDays: "Active days",
+    questionsThisWeek: "Questions this week",
+    topicsThisWeek: "Topics this week",
+    weeklyActivity: "Weekly activity",
+    topicsStudied: "Topics studied",
+    noTopics: "No topics studied this week.",
+    recentStudyQuestions: "Recent study questions",
+    noRecentQuestions: "No questions asked this week.",
     duplicateTitle: "Some files already exist",
     duplicateMessage: "These filenames already exist in your library. Upload anyway to create duplicates?",
     duplicateUploadAnyway: "Upload anyway",
@@ -34,6 +47,13 @@ export const dictionaries = {
     libraryTitle: "Document library",
     refresh: "Refresh",
     noDocs: "No documents yet. Upload one to start.",
+    summaryTitle: "Study guide",
+    generateSummary: "Generate summary",
+    summaryGenerated: "Study guide generated",
+    summaryBusy: "Generating study guide",
+    noSummary: "Select a document and generate a one-page study guide.",
+    onePageSummary: "One-page summary",
+    testableConcepts: "Five most testable concepts",
     selected: "Selected",
     select: "Select",
     generateCards: "Generate cards",
@@ -89,6 +109,17 @@ export const dictionaries = {
     uploadDone: "Đã tải và lập chỉ mục",
     uploadDoneMany: "Đã tải và lập chỉ mục các file",
     uploadError: "Tải file thất bại",
+    dashboardTitle: "Bảng học tuần",
+    loadingDashboard: "Đang tải hoạt động học trong tuần",
+    noDashboard: "Chưa có dữ liệu dashboard.",
+    activeDays: "Ngày học",
+    questionsThisWeek: "Câu hỏi tuần này",
+    topicsThisWeek: "Chủ đề tuần này",
+    weeklyActivity: "Hoạt động theo tuần",
+    topicsStudied: "Chủ đề đã học",
+    noTopics: "Tuần này chưa có chủ đề đã học.",
+    recentStudyQuestions: "Câu hỏi học gần đây",
+    noRecentQuestions: "Tuần này chưa có câu hỏi nào.",
     duplicateTitle: "Một số file đã tồn tại",
     duplicateMessage: "Các tên file này đã có trong thư viện. Vẫn tải lên để tạo bản trùng?",
     duplicateUploadAnyway: "Vẫn tải lên",
@@ -102,6 +133,13 @@ export const dictionaries = {
     libraryTitle: "Thư viện tài liệu",
     refresh: "Làm mới",
     noDocs: "Chưa có tài liệu. Hãy tải một file để bắt đầu.",
+    summaryTitle: "Tóm tắt học tập",
+    generateSummary: "Tạo tóm tắt",
+    summaryGenerated: "Đã tạo tóm tắt học tập",
+    summaryBusy: "Đang tạo tóm tắt học tập",
+    noSummary: "Chọn tài liệu và tạo bản tóm tắt một trang.",
+    onePageSummary: "Tóm tắt một trang",
+    testableConcepts: "Năm khái niệm dễ kiểm tra nhất",
     selected: "Đang chọn",
     select: "Chọn",
     generateCards: "Tạo thẻ",
