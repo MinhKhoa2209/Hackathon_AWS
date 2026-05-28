@@ -6,6 +6,47 @@
 
 ---
 
+## Table of Contents
+
+| § | Section | Maps to W7 grading |
+|---|---|---|
+| [1](#1-cover) | Cover | Crit IV — context |
+| [2](#2-pitch--vision) | Pitch & Vision | **Crit I (10%)** |
+| [3](#3-architecture) | Architecture (7 mandatory + 1 optional) | **Crit II (20%)** |
+| [4](#4-cost-discipline) | Cost Discipline (3 daily screenshots) | Crit IV |
+| [5](#5-security) | Security (IAM baseline + Optional #10 area) | Crit II/IV |
+| [6](#6-monitoring) | Monitoring (Optional #8 partial: dashboard + alarm) | Crit II/IV |
+| [6.5](#65-measurement--decisions--anti-đối-phó--required) ★ | Measurement & Decisions — **anti-đối phó** | **Crit II/III/IV (highest weight per block)** |
+| [7](#7-lessons-learned-200-words) | Lessons Learned (~200 words) | Crit IV |
+| [8](#8-teardown-plan) | Teardown Plan + Mon 2/6 verify checklist | Crit IV |
+| [9](#9-capture-checklist--team-workflow-not-graded) | _Capture Checklist (team TODO, not graded)_ | n/a |
+
+---
+
+## Status Summary (at a glance for grader)
+
+| Component | Status | Where in this doc |
+|---|---|---|
+| 7 Mandatory capabilities — all live | ✅ | §3 table |
+| Live HTTPS URL | ✅ `https://d2ejfy6ejo0y9l.cloudfront.net` | §1 |
+| Real Bedrock invocation (not stub) | ✅ Claude Sonnet 4.5 + KB `11AOIXNNUM` ACTIVE | §3 + §6.5 D2 |
+| Persistent state cross-session | ✅ DynamoDB `studybot-prod-users` | §3 + §6.5 D2 |
+| Network isolation (DB not public-facing) | ✅ VPC + private subnets, no NAT | §3 + §6.5 D3 |
+| IAM least-privilege | ✅ scoped ARNs, no wildcards | §5 |
+| Pre-flight Budget alert | ✅ $80 confirmed | §5 #6 |
+| Optional #8 Full Observability | ⚠️ partial 2/4 (dashboard + alarm, no custom metric / Log Insights) | §3 + §6 |
+| Optional #10 Advanced Security | ❌ not implemented (would be KMS CMK) | §5 |
+| §6.5 Decision blocks | ✅ 3 blocks (W7 requires ≥2) | §6.5 |
+| Cost ≤ $30 (Bonus H eligibility) | 🎯 expected, verify Friday | §4 |
+| 3 daily Cost Explorer screenshots | ⏳ Wed/Thu captured? Fri pending | §9 P0 #1-3 |
+| 5 security/monitoring screenshots | ⏳ pending | §9 P0 #4-9 |
+| Architecture diagram PNG | ⏳ team drawing | §3 + §9 #10 |
+| Teardown confirmation (Mon 2/6) | ⏳ pending Sun→Mon | §8 + §9 #26 |
+
+✅ done · ⚠️ partial · ⏳ pending capture · ❌ not in scope
+
+---
+
 ## 1. Cover
 
 | | |
@@ -185,6 +226,12 @@ Plan to add: `fields @timestamp, @message | filter @message like /ERROR/ | sort 
 ---
 
 ## 6.5 Measurement & Decisions ★ (Anti-đối phó — required)
+
+> **★ HIGHEST-LEVERAGE SECTION.** W7 spec: "claims without proof score 0 for that
+> decision." Each block below follows the required 5-part template
+> (DECISION / ALTERNATIVES / MEASUREMENT / EVIDENCE / TRADE-OFF). Numbers marked
+> `[TBD]` need verification by the team's final probe run before Friday — every
+> `[TBD]` left at demo time costs a fraction of that block's credit.
 
 ### DECISION 1 — PDF extraction strategy: density-gated multi-path
 
@@ -382,3 +429,154 @@ terraform destroy -var-file=terraform.tfvars
 - [ ] AWS Budget `studybot-prod-monthly`: deleted
 - [ ] Cost Explorer filtered by `Project=studybot` shows $0.00 accruing for last 24h
 - [ ] Screenshot saved to `assets/teardown_zero_cost.png` and committed
+
+---
+
+## 9. Capture Checklist — _team workflow, NOT graded_
+
+> ⓘ **Not part of W7 rubric.** This section is the team's internal TODO list
+> for who-captures-what before Friday. Trainer may skim this to verify intent,
+> but won't grade it directly. Sections 1-8 + 6.5 above are the graded artifact.
+>
+> All paths relative to `evidence/`. Save as PNG (text stays crisp), then embed
+> in the relevant section above with markdown image syntax + 1-2 line caption.
+> W7 docs explicitly say "screenshots without explanations score lower" — caption
+> every image.
+>
+> Priority: **P0** = required by W7 rubric (missing = lose Crit IV) · **P1** =
+> strongly recommended (powers §6.5 Decision blocks) · **P2** = bonus paths /
+> extra proof.
+
+### P0 — REQUIRED (10 items)
+
+#### Cost evidence — §4 (mandatory 3 daily)
+
+| # | File | When | Where | What to show |
+|---|---|---|---|---|
+| 1 | `cost_day1.png` | Wed 27/5 ~17:00 | Billing → Cost Explorer → filter `Project=studybot`, last 24h, group by Service | Day 1 total + top services |
+| 2 | `cost_day2.png` | Thu 28/5 ~17:00 | Same, last 24h | Day 2 total + delta |
+| 3 | `cost_friday.png` | Fri 29/5 ~08:30 | Same, last 48h or all-time-of-project | Final total for slide |
+
+Caption: `"Day [1/2/Friday] EOD: total $X.XX (cap $100, Bonus H target <$30). Top driver: [service] $Y.YY ([Z]%)."`
+
+#### Security evidence — §5
+
+| # | File | Where | What to show |
+|---|---|---|---|
+| 4 | `iam_lambda_policy.png` | IAM → Roles → `studybot-prod-lambda-role` → Permissions → inline policy `studybot-prod-app` → JSON | Full inline policy JSON — S3 scoped to docs bucket ARN, DDB to userstore table ARN, no wildcards |
+| 5 | `mfa_root.png` | IAM → Account → "Multi-factor authentication (MFA)" | MFA enabled, 0 long-lived root access keys |
+| 6 | `budget_alert.png` | Billing → Budgets → `studybot-prod-monthly` → Alerts | $80 budget, 80% threshold, SNS subscription **Confirmed** (not Pending) |
+
+Captions:
+- #4: `"Lambda execution role: 3 scoped statements (S3/DDB/Bedrock). No AdministratorAccess, no resource wildcards on S3/DDB. Bedrock InvokeModel accepts resource=* (AWS limitation, documented)."`
+- #5: `"Root: MFA enabled, no access keys. Team uses IAM users only."`
+- #6: `"Budget $80 monthly. Alert at $64 (80%) Actual. SNS email confirmed."`
+
+#### Monitoring evidence — §6 (Optional #8 partial proof)
+
+| # | File | Where | What to show |
+|---|---|---|---|
+| 7 | `dashboard.png` | CloudWatch → Dashboards → `studybot-prod-dashboard` | Both widgets (Lambda Errors+Duration, API GW Count+5xx) with non-zero datapoints |
+| 8 | `alarm.png` | CloudWatch → Alarms → `studybot-prod-lambda-errors` → Details | Threshold + period + action + current state |
+
+#### AI / Architecture proof — §3
+
+| # | File | Where | What to show |
+|---|---|---|---|
+| 9 | `bedrock_kb.png` | Bedrock → Knowledge bases → `studybot-prod-kb` | KB ID `11AOIXNNUM` **ACTIVE**, data source sync timestamp, embedding model + chunking config |
+| 10 | `architecture.png` | draw.io export (team owns) | Final architecture diagram, embedded in §3 |
+
+---
+
+### P1 — STRONGLY RECOMMENDED (5 screenshots + 3 CSVs)
+
+| # | File | Where | What | Powers Decision |
+|---|---|---|---|---|
+| 11 | `lambda_latency.png` | CloudWatch → Metrics → AWS/Lambda → studybot-prod-api → Duration → 1h-24h | Duration histogram or line chart with p50/p99 | §6.5 Decision 2 latency claim |
+| 12 | `vpc.png` | VPC → Your VPCs → studybot-prod-vpc → Resource Map | 2 private subnets, 5 endpoints, no NAT/IGW visible | §6.5 Decision 3 no-NAT story |
+| 13 | `ddb_items.png` | DynamoDB → Tables → studybot-prod-users → Explore Items → filter `user_id = test-user-001` | DOC#, QUERY#, FLASHCARD#, QUIZ# rows coexisting under one partition | §3 single-table proof |
+| 14 | `app_live.png` | Browser screenshot of https://d2ejfy6ejo0y9l.cloudfront.net | Full UI with doc uploaded + query answer + citations + score | §3 working AI proof |
+| 15 | `s3_buckets.png` | S3 Console → Buckets list filtered `studybot-` | Both buckets + Block Public Access ON for both, versioning on docs | §3 + §5 |
+
+**CSV / sheet files (cite from §6.5 Decision blocks):**
+
+| # | File path | Contents | Powers |
+|---|---|---|---|
+| 16 | `evidence/probe_questions.csv` | 5+ questions × {question, expected source chunk, retrieved chunks, precision@3 y/n} | §6.5 Decision 1 |
+| 17 | `evidence/model_blind_test.csv` | 5 questions × {haiku_answer, sonnet_answer, judge_preferred, why} | §6.5 Decision 2 |
+| 18 | `evidence/pdf_extraction_benchmark.xlsx` | 30 PDFs × {filename, pages, chars/page density, extraction_ok y/n} | §6.5 Decision 1 |
+
+---
+
+### P2 — NICE-TO-HAVE (bonus paths / extra polish)
+
+| # | File | What | Impact |
+|---|---|---|---|
+| 19 | `cost_anomaly.png` | Cost Anomaly Detection default monitor + subscription | Pre-flight verify |
+| 20 | `apigateway_routes.png` | API Gateway → studybot-prod-http → Routes | §3 visual proof |
+| 21 | `lambda_config.png` | Lambda → studybot-prod-api → Configuration → Env vars (mask secret ARNs) | §3 env-var-driven config proof |
+| 22 | `cloudfront.png` | CloudFront → E27SH98909YQY0 → Origins + Behaviors | §3 OAC + 2-origin routing |
+| 23 | `bedrock_logs.png` | CloudWatch Logs → `/aws/lambda/studybot-prod-api` → live tail → filter "InvokeModel" or "RetrieveAndGenerate" | §3 proof of real Bedrock calls (not stub) |
+| 24 | `bonus_path_d_users.png` | Slack/Discord/group chat: 5 external users with feedback | Bonus Path D (≥5 real users) |
+| 25 | `tagging_filter.png` | Cost Explorer filter sidebar: `Tag: Project = studybot` works | §4 pre-flight tags |
+| 26 | `teardown_zero_cost.png` | **Mon 2/6** Cost Explorer 24h filter `Project=studybot` = $0.00 | §8 teardown confirmation **(REQUIRED post-Sun)** |
+
+---
+
+### Quick capture workflow (~30 min total, spread across days)
+
+**Wednesday 27/5 EOD (5 min)**
+- [ ] #1 `cost_day1.png`
+- [ ] Verify #6 `budget_alert.png` (status Confirmed)
+- [ ] Verify #5 `mfa_root.png`
+
+**Thursday 28/5 morning, after ~30 min of demo traffic**
+- [ ] #7 `dashboard.png` (now has datapoints)
+- [ ] #9 `bedrock_kb.png`
+- [ ] #4 `iam_lambda_policy.png`
+- [ ] #12 `vpc.png`
+- [ ] #15 `s3_buckets.png`
+- [ ] #13 `ddb_items.png` (after running quiz + flashcards in browser to populate)
+
+**Thursday 28/5 EOD**
+- [ ] #2 `cost_day2.png`
+- [ ] #8 `alarm.png` (capture state at EOD)
+- [ ] #11 `lambda_latency.png` (24h Duration chart)
+
+**Thursday 28/5 night**
+- [ ] #14 `app_live.png` (full UI screenshot — clean session, real query)
+- [ ] #16 `probe_questions.csv` — pick 5 questions, run, log precision@3
+- [ ] #17 `model_blind_test.csv` — 5 questions, capture Haiku + Sonnet, judge
+
+**Friday 29/5 AM (pre-demo, ~08:30)**
+- [ ] #3 `cost_friday.png` (final number for slide 16)
+
+**Monday 2/6 AM (post-teardown)**
+- [ ] #26 `teardown_zero_cost.png`
+
+---
+
+### Embedding screenshots in this Evidence Pack
+
+Replace `[TBD …]` placeholders with markdown image syntax + caption:
+
+```markdown
+![Cost Day 1](./cost_day1.png)
+*Total spend Wed EOD: $1.23. Top driver: Bedrock tokens ($0.80).*
+```
+
+Sections that explicitly need images per W7 rubric:
+- **§3 Architecture** → #10 architecture.png
+- **§4 Cost** → #1, #2, #3 (mandatory)
+- **§5 Security** → #4, #5, #6 (+ #23 #24 if optional #10 done)
+- **§6 Monitoring** → #7, #8
+- **§6.5 Decisions** → #11, #12, #13 + CSVs #16, #17, #18
+- **§8 Teardown** → #26 (committed Mon 2/6)
+
+### Screenshot capture tips
+
+- Browser fullscreen (F11) + zoom 90% to fit more in one shot
+- Mask username if root login was used (account ID `273265662366` is fine to show)
+- Win+Shift+S (Windows Snipping Tool) for region selection
+- Save PNG (not JPG — text stays crisp)
+- Filename = exact name in this checklist (so embed links work first time)
