@@ -156,6 +156,18 @@ button, input, select, textarea {
   transition: background var(--t-slow) ease, border-color var(--t-slow) ease;
 }
 
+/* Mobile menu button — visible only on mobile */
+#mobile-menu-btn {
+  display: none;
+}
+@media (max-width: 768px) {
+  #mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 /* Body = sidebar + workspace */
 .app-body {
   display: flex;

@@ -4,9 +4,12 @@ Interface:
     ingest(doc_id, text, metadata=None) -> dict
     search(query, top_k=5, filter=None) -> list[dict] (each has 'text', 'doc_id', 'score', 'metadata')
 """
+import logging
 import re
 from collections import Counter
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class BedrockKBVector:
@@ -44,6 +47,18 @@ class BedrockKBVector:
             return {
                 "status": "already_running",
                 "job_id": match.group(1) if match else None,
+            }
+        except Exception as exc:
+            message = str(exc)
+            logger.warning("Bedrock KB ingestion did not start for %s: %s", doc_id, message)
+            if "Too many requests" in message or "Status Code: 429" in message:
+                return {
+                    "status": "deferred",
+                    "error": message,
+                }
+            return {
+                "status": "failed",
+                "error": message,
             }
         job = resp.get("ingestionJob", {})
         return {

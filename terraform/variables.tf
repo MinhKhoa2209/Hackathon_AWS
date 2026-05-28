@@ -13,7 +13,7 @@ variable "environment" {
 variable "aws_region" {
   description = "AWS region."
   type        = string
-  default     = "ap-southeast-1"
+  default     = "us-east-1"
 }
 
 variable "aws_profile" {
@@ -40,20 +40,26 @@ variable "lambda_package_path" {
   default     = "../W7/starter_apps/studybot/_build/studybot-lambda.zip"
 }
 
+variable "frontend_dist_path" {
+  description = "Path to the built frontend dist directory."
+  type        = string
+  default     = "../W7/starter_apps/studybot/frontend/dist"
+}
+
 variable "cors_allow_origins" {
   description = "Allowed browser origins for API Gateway CORS."
   type        = list(string)
-  default     = ["http://localhost:5173", "http://localhost:8000"]
+  default     = ["*"]
 }
 
 variable "ai_model_id" {
   description = "Bedrock model ID used by the backend."
   type        = string
-  default     = "anthropic.claude-3-5-haiku-20241022-v1:0"
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "embedding_model_arn" {
   description = "Embedding model ARN for Bedrock Knowledge Base."
   type        = string
-  default     = "arn:aws:bedrock:ap-southeast-1::foundation-model/amazon.titan-embed-text-v2:0"
+  default     = "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
 }

@@ -30,7 +30,7 @@ _allowed = ["*"] if config.cors_origins == "*" else [o.strip() for o in config.c
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -17,3 +17,7 @@ variable "api_base_url" {
 variable "aws_region" {
   type = string
 }
+
+variable "frontend_dist_path" {
+  type = string
+}

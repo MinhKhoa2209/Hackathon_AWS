@@ -2,6 +2,24 @@ data "aws_s3_bucket" "frontend" {
   bucket = var.frontend_bucket_name
 }
 
+locals {
+  frontend_files = fileset(var.frontend_dist_path, "**")
+  content_types = {
+    css   = "text/css"
+    html  = "text/html"
+    ico   = "image/x-icon"
+    js    = "application/javascript"
+    json  = "application/json"
+    map   = "application/json"
+    png   = "image/png"
+    svg   = "image/svg+xml"
+    txt   = "text/plain"
+    webp  = "image/webp"
+    woff  = "font/woff"
+    woff2 = "font/woff2"
+  }
+}
+
 resource "aws_cloudfront_origin_access_control" "this" {
   name                              = "${var.name}-oac"
   description                       = "OAC for StudyBot frontend"
@@ -92,4 +110,14 @@ resource "aws_s3_object" "runtime_config" {
     awsRegion  = var.aws_region
     authMode   = "iam-only"
   })
+}
+
+resource "aws_s3_object" "frontend_dist" {
+  for_each = local.frontend_files
+
+  bucket       = var.frontend_bucket_name
+  key          = each.value
+  source       = "${var.frontend_dist_path}/${each.value}"
+  etag         = filemd5("${var.frontend_dist_path}/${each.value}")
+  content_type = lookup(local.content_types, lower(try(regex("[^.]+$", each.value), "")), "application/octet-stream")
 }

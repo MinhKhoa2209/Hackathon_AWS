@@ -4,11 +4,14 @@ Interface:
     invoke(prompt, **kwargs) -> str
     retrieve_and_generate(query, kb_id="") -> dict with {"answer": str, "citations": list}
 """
+import logging
 from typing import Any
 import hashlib
 import json
 import random
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class BedrockAI:
@@ -16,45 +19,90 @@ class BedrockAI:
 
     def __init__(self, region: str, model_id: str, model_arn: str = ""):
         import boto3
+        from botocore.config import Config
         self.region = region
         self.model_id = model_id
         self.model_arn = model_arn or f"arn:aws:bedrock:{self.region}::foundation-model/{self.model_id}"
-        self.runtime = boto3.client("bedrock-runtime", region_name=region)
-        self.agent_runtime = boto3.client("bedrock-agent-runtime", region_name=region)
+        client_config = Config(
+            connect_timeout=2,
+            read_timeout=10,
+            retries={"max_attempts": 1, "mode": "standard"},
+        )
+        self.runtime = boto3.client("bedrock-runtime", region_name=region, config=client_config)
+        self.agent_runtime = boto3.client("bedrock-agent-runtime", region_name=region, config=client_config)
+        self.fallback_model_ids = [
+            "amazon.nova-lite-v1:0",
+            "amazon.nova-micro-v1:0",
+        ]
+
+    def _fallback_model_arn(self, model_id: str) -> str:
+        return f"arn:aws:bedrock:{self.region}::foundation-model/{model_id}"
+
+    def _model_candidates(self) -> list[tuple[str, str]]:
+        candidates = [(self.model_id, self.model_arn)]
+        seen = {self.model_id}
+        for model_id in self.fallback_model_ids:
+            if model_id in seen:
+                continue
+            candidates.append((model_id, self._fallback_model_arn(model_id)))
+            seen.add(model_id)
+        return candidates
 
     def invoke(self, prompt: str, **kwargs: Any) -> str:
         max_tokens = kwargs.get("max_tokens", 1024)
-        resp = self.runtime.converse(
-            modelId=self.model_id,
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": max_tokens, "temperature": kwargs.get("temperature", 0.2)},
-        )
-        return resp["output"]["message"]["content"][0]["text"]
+        last_exc: Exception | None = None
+        for model_id, _ in self._model_candidates():
+            try:
+                resp = self.runtime.converse(
+                    modelId=model_id,
+                    messages=[{"role": "user", "content": [{"text": prompt}]}],
+                    inferenceConfig={"maxTokens": max_tokens, "temperature": kwargs.get("temperature", 0.2)},
+                )
+                if model_id != self.model_id:
+                    logger.warning("Bedrock invoke fell back from %s to %s", self.model_id, model_id)
+                return resp["output"]["message"]["content"][0]["text"]
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("Bedrock invoke failed on %s: %s", model_id, exc)
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("No Bedrock model candidates configured")
 
     def retrieve_and_generate(self, query: str, kb_id: str = "") -> dict:
         if not kb_id:
             raise ValueError("VECTOR_BEDROCK_KB_ID must be set for Bedrock KB retrieve_and_generate")
-        resp = self.agent_runtime.retrieve_and_generate(
-            input={"text": query},
-            retrieveAndGenerateConfiguration={
-                "type": "KNOWLEDGE_BASE",
-                "knowledgeBaseConfiguration": {
-                    "knowledgeBaseId": kb_id,
-                    "modelArn": self.model_arn,
-                },
-            },
-        )
-        return {
-            "answer": resp["output"]["text"],
-            "citations": [
-                {
-                    "text": ref.get("content", {}).get("text", ""),
-                    "source": ref.get("location", {}),
+        last_exc: Exception | None = None
+        for model_id, model_arn in self._model_candidates():
+            try:
+                resp = self.agent_runtime.retrieve_and_generate(
+                    input={"text": query},
+                    retrieveAndGenerateConfiguration={
+                        "type": "KNOWLEDGE_BASE",
+                        "knowledgeBaseConfiguration": {
+                            "knowledgeBaseId": kb_id,
+                            "modelArn": model_arn,
+                        },
+                    },
+                )
+                if model_id != self.model_id:
+                    logger.warning("Bedrock RAG fell back from %s to %s", self.model_id, model_id)
+                return {
+                    "answer": resp["output"]["text"],
+                    "citations": [
+                        {
+                            "text": ref.get("content", {}).get("text", ""),
+                            "source": ref.get("location", {}),
+                        }
+                        for citation in resp.get("citations", [])
+                        for ref in citation.get("retrievedReferences", [])
+                    ],
                 }
-                for citation in resp.get("citations", [])
-                for ref in citation.get("retrievedReferences", [])
-            ],
-        }
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("Bedrock RAG failed on %s: %s", model_id, exc)
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("No Bedrock model candidates configured")
 
 
 class LocalAI:

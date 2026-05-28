@@ -438,6 +438,7 @@ export function App() {
         health={health}
         theme={theme}
         onThemeToggle={toggleTheme}
+        onMenuToggle={() => setSidebarOpen((v) => !v)}
       />
 
       {/* Body */}

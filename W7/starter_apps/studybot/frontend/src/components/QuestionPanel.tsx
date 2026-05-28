@@ -347,7 +347,14 @@ function MessageRow({
   }
 
   // assistant
-  const hasCitations = (msg.citations?.length ?? 0) > 0;
+  // Only count citations that have a real source (filename, doc match, or parseable source URI)
+  const validCitations = (msg.citations ?? []).filter((c) => {
+    if (c.filename) return true;
+    if (c.doc_id && c.doc_id !== "Uploaded document") return true;
+    if (getFilenameFromSource(c.source)) return true;
+    return false;
+  });
+  const hasCitations = validCitations.length > 0;
   return (
     <div className="chat-row ai animate-slide-up">
       <div className="flex items-end gap-2">
@@ -378,13 +385,13 @@ function MessageRow({
                 onClick={() => setCitationsOpen((v) => !v)}
               >
                 <FileText className="h-3 w-3" />
-                {msg.citations!.length} citation{msg.citations!.length > 1 ? "s" : ""}
+                {validCitations.length} citation{validCitations.length > 1 ? "s" : ""}
                 {citationsOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               </button>
 
               {citationsOpen && (
                 <div className="mt-2 grid gap-2 animate-slide-up">
-                  {msg.citations!.map((c, i) => (
+                  {validCitations.map((c, i) => (
                     <CitationChip key={i} citation={c} index={i} docs={docs} />
                   ))}
                 </div>
@@ -397,7 +404,7 @@ function MessageRow({
         <span>{timeStr}</span>
         {hasCitations && !citationsOpen && (
           <span style={{ color: "#06b6d4" }}>
-            · {msg.citations!.length} source{msg.citations!.length > 1 ? "s" : ""}
+            · {validCitations.length} source{validCitations.length > 1 ? "s" : ""}
           </span>
         )}
       </div>

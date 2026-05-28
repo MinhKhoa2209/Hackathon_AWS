@@ -26,6 +26,11 @@ resource "aws_iam_role_policy_attachment" "basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "vpc_access" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 data "aws_iam_policy_document" "app" {
   statement {
     actions = [
@@ -53,8 +58,10 @@ data "aws_iam_policy_document" "app" {
   statement {
     actions = [
       "bedrock:InvokeModel",
+      "bedrock:GetInferenceProfile",
       "bedrock:Retrieve",
-      "bedrock:RetrieveAndGenerate"
+      "bedrock:RetrieveAndGenerate",
+      "bedrock:StartIngestionJob"
     ]
     resources = ["*"]
   }
@@ -89,7 +96,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       AI_BACKEND                    = "bedrock"
       AI_MODEL_ID                   = var.ai_model_id
-      AWS_REGION                    = var.aws_region
+      AI_MODEL_ARN                  = var.ai_model_arn
       STORAGE_BACKEND               = "s3"
       STORAGE_BUCKET                = var.docs_bucket_name
       USERSTORE_BACKEND             = "dynamodb"

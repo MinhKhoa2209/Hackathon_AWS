@@ -14,6 +14,13 @@ resource "aws_s3vectors_index" "this" {
   data_type          = "float32"
   dimension          = 1024
   distance_metric    = "cosine"
+
+  metadata_configuration {
+    non_filterable_metadata_keys = [
+      "AMAZON_BEDROCK_TEXT",
+      "AMAZON_BEDROCK_METADATA"
+    ]
+  }
 }
 
 data "aws_iam_policy_document" "bedrock_assume" {
@@ -39,8 +46,15 @@ data "aws_iam_policy_document" "kb" {
   }
 
   statement {
-    actions   = ["bedrock:InvokeModel"]
-    resources = [var.embedding_model_arn]
+    actions = [
+      "bedrock:GetInferenceProfile",
+      "bedrock:InvokeModel",
+      "bedrock:RetrieveAndGenerate"
+    ]
+    resources = [
+      var.embedding_model_arn,
+      var.generation_model_arn
+    ]
   }
 
   statement {
@@ -100,4 +114,3 @@ resource "aws_bedrockagent_data_source" "docs" {
     }
   }
 }
-

@@ -296,7 +296,17 @@ def handle_upload(
     text = extraction.text
     ingestion = {"status": "skipped"}
     if text.strip():
-        ingestion = vector_store.ingest(doc_id=doc_id, text=text, metadata={"user_id": user_id, "filename": filename})
+        try:
+            ingestion = vector_store.ingest(
+                doc_id=doc_id,
+                text=text,
+                metadata={"user_id": user_id, "filename": filename},
+            )
+        except Exception as exc:
+            ingestion = {
+                "status": "failed",
+                "error": str(exc),
+            }
     userstore.add_doc(
         user_id=user_id,
         doc_id=doc_id,
@@ -316,6 +326,7 @@ def handle_upload(
             "scanned": extraction.scanned,
             "ingestion_status": ingestion.get("status"),
             "ingestion_job_id": ingestion.get("job_id"),
+            "ingestion_error": ingestion.get("error"),
         },
     )
     return {
@@ -335,6 +346,7 @@ def handle_upload(
         "scanned": extraction.scanned,
         "ingestion_status": ingestion.get("status"),
         "ingestion_job_id": ingestion.get("job_id"),
+        "ingestion_error": ingestion.get("error"),
     }
 
 

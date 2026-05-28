@@ -10,3 +10,6 @@ variable "embedding_model_arn" {
   type = string
 }
 
+variable "generation_model_arn" {
+  type = string
+}

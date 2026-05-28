@@ -1,4 +1,5 @@
-import { BookOpen, Moon, Sun, WifiOff } from "lucide-react";
+import { BookOpen, ChevronDown, Menu, Moon, Server, Sun, WifiOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { getApiBase, getUserId, type HealthResponse } from "../api";
 import type { Dictionary, Language } from "../i18n";
 
@@ -9,15 +10,40 @@ type Props = {
   health: HealthResponse | null;
   theme: "dark" | "light";
   onThemeToggle: () => void;
+  onMenuToggle: () => void;
 };
 
-export function Header({ t, language, onLanguageChange, health, theme, onThemeToggle }: Props) {
+export function Header({ t, language, onLanguageChange, health, theme, onThemeToggle, onMenuToggle }: Props) {
   const apiBase = getApiBase();
   const displayUser = getUserId();
+  const [connOpen, setConnOpen] = useState(false);
+  const connRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (connRef.current && !connRef.current.contains(e.target as Node)) {
+        setConnOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <header className="app-header">
       <div className="mx-auto flex h-full max-w-none items-center gap-2 px-3 sm:px-4">
+
+        {/* ── Mobile menu button ─────────────────────────── */}
+        <button
+          id="mobile-menu-btn"
+          className="btn-icon"
+          onClick={onMenuToggle}
+          aria-label="Open menu"
+          style={{ width: "2rem", height: "2rem", flexShrink: 0 }}
+        >
+          <Menu className="h-[1.05rem] w-[1.05rem]" />
+        </button>
 
         {/* ── Logo + Brand ───────────────────────────────── */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -52,41 +78,88 @@ export function Header({ t, language, onLanguageChange, health, theme, onThemeTo
         {/* ── Right controls ─────────────────────────────── */}
         <div className="flex items-center gap-1.5 sm:gap-2">
 
-          {/* Status + backend badges */}
-          <div className="hidden items-center gap-1.5 sm:flex">
-            {health ? (
-              <span className="badge-green flex items-center gap-1.5">
-                <span
-                  className="h-1.5 w-1.5 rounded-full bg-emerald-400"
-                  style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
-                />
-                <span className="hidden md:inline">{t.healthOk}</span>
-                <span className="md:hidden">OK</span>
-              </span>
-            ) : (
-              <span className="badge-red flex items-center gap-1.5">
-                <WifiOff className="h-3 w-3" />
-                <span className="hidden md:inline">{t.backendOffline}</span>
-              </span>
-            )}
+          {/* Connection info dropdown */}
+          <div className="relative hidden sm:block" ref={connRef}>
+            <button
+              onClick={() => setConnOpen((v) => !v)}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all duration-150"
+              style={{
+                background: health ? "rgba(16,185,129,0.10)" : "rgba(239,68,68,0.10)",
+                border: `1px solid ${health ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+                color: health ? "#10b981" : "#ef4444",
+              }}
+              aria-expanded={connOpen}
+            >
+              {health ? (
+                <>
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0"
+                    style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
+                  />
+                  <span className="hidden md:inline">{t.healthOk}</span>
+                  <span className="md:hidden">OK</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="h-3 w-3 shrink-0" />
+                  <span className="hidden md:inline">{t.backendOffline}</span>
+                </>
+              )}
+              <ChevronDown
+                className="h-3 w-3 shrink-0 transition-transform duration-200"
+                style={{ transform: connOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+              />
+            </button>
 
-            {/* Backend badges (compact) */}
-            {health && Object.entries(health.backends).map(([name, value]) => (
-              <span
-                key={name}
-                className={`hidden lg:inline-flex ${value === "local" ? "badge-amber" : "badge-violet"}`}
+            {/* Dropdown panel */}
+            {connOpen && (
+              <div
+                className="absolute right-0 top-full mt-2 z-50 min-w-[220px] rounded-xl p-3 shadow-xl animate-slide-up"
+                style={{
+                  background: "var(--surface-1)",
+                  border: "1px solid var(--border)",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.24)",
+                }}
               >
-                {name}: {value}
-              </span>
-            ))}
-          </div>
+                {/* Header row */}
+                <div className="flex items-center gap-2 mb-3 pb-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                  <Server className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                    Connection Info
+                  </span>
+                </div>
 
-          {/* API base chip */}
-          {apiBase && (
-            <span className="badge-muted hidden xl:inline-flex" title={apiBase}>
-              {t.api}: {apiBase.replace(/^https?:\/\//, "").slice(0, 20)}
-            </span>
-          )}
+                {/* Backend rows */}
+                {health && Object.entries(health.backends).map(([name, value]) => (
+                  <div key={name} className="flex items-center justify-between py-1.5">
+                    <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>{name}</span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${value === "local" ? "badge-amber" : "badge-violet"}`}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                ))}
+
+                {/* API endpoint */}
+                {apiBase && (
+                  <div
+                    className="mt-2 pt-2.5 flex items-start gap-2"
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <span className="text-xs shrink-0 mt-0.5" style={{ color: "var(--text-muted)" }}>API</span>
+                    <span
+                      className="text-[11px] font-mono break-all leading-4"
+                      style={{ color: "var(--text-secondary)" }}
+                      title={apiBase}
+                    >
+                      {apiBase.replace(/^https?:\/\//, "")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Language toggle */}
           <div

@@ -1,9 +1,10 @@
 project_name          = "studybot"
 environment           = "prod"
-aws_region            = "ap-southeast-1"
+aws_region            = "us-east-1"
 aws_profile           = ""
 budget_limit_usd      = 80
 budget_alert_email    = "you@example.com"
+cors_allow_origins    = ["*"]
 
 # Add the final CloudFront URL after the first apply if you want tighter CORS.
 # cors_allow_origins = ["http://localhost:5173", "http://localhost:8000", "https://example.cloudfront.net"]

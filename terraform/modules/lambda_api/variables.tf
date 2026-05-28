@@ -38,6 +38,10 @@ variable "ai_model_id" {
   type = string
 }
 
+variable "ai_model_arn" {
+  type = string
+}
+
 variable "lambda_security_group_ids" {
   type    = list(string)
   default = []
