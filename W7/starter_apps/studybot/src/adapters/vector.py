@@ -1,7 +1,7 @@
 """Vector store adapters. Pick via VECTOR_BACKEND env var.
 
 Interface:
-    ingest(doc_id, text, metadata=None) -> None
+    ingest(doc_id, text, metadata=None) -> dict
     search(query, top_k=5, filter=None) -> list[dict] (each has 'text', 'doc_id', 'score', 'metadata')
 """
 import re
@@ -30,14 +30,26 @@ class BedrockKBVector:
         self.agent = boto3.client("bedrock-agent", region_name=region)
         self.agent_runtime = boto3.client("bedrock-agent-runtime", region_name=region)
 
-    def ingest(self, doc_id: str, text: str, metadata: Optional[dict] = None) -> None:
+    def ingest(self, doc_id: str, text: str, metadata: Optional[dict] = None) -> dict:
         if not self.data_source_id:
-            return
-        self.agent.start_ingestion_job(
-            knowledgeBaseId=self.kb_id,
-            dataSourceId=self.data_source_id,
-            description=f"StudyBot upload sync for {doc_id}",
-        )
+            return {"status": "skipped"}
+        try:
+            resp = self.agent.start_ingestion_job(
+                knowledgeBaseId=self.kb_id,
+                dataSourceId=self.data_source_id,
+                description=f"StudyBot upload sync for {doc_id}",
+            )
+        except self.agent.exceptions.ConflictException as exc:
+            match = re.search(r"ID\s+([A-Z0-9]+)", str(exc))
+            return {
+                "status": "already_running",
+                "job_id": match.group(1) if match else None,
+            }
+        job = resp.get("ingestionJob", {})
+        return {
+            "status": "started",
+            "job_id": job.get("ingestionJobId"),
+        }
 
     def search(self, query: str, top_k: int = 5, filter: Optional[dict] = None) -> list:
         kwargs = {
@@ -118,10 +130,11 @@ class LocalVector:
             chunks.append(current.strip())
         return chunks or [text]
 
-    def ingest(self, doc_id: str, text: str, metadata: Optional[dict] = None) -> None:
+    def ingest(self, doc_id: str, text: str, metadata: Optional[dict] = None) -> dict:
         md = metadata or {}
         for i, chunk in enumerate(self._chunk(text)):
             self.docs.append((f"{doc_id}#{i}", chunk, {**md, "doc_id": doc_id, "chunk_idx": i}))
+        return {"status": "completed"}
 
     def search(self, query: str, top_k: int = 5, filter: Optional[dict] = None) -> list:
         q_tokens = set(self._content_tokens(query))

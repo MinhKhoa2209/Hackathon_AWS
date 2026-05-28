@@ -7,12 +7,35 @@ Interface:
     recent_queries(user_id, limit=10) -> list[dict]
 """
 import json
+from decimal import Decimal
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _dynamodb_value(value):
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, list):
+        return [_dynamodb_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _dynamodb_value(item) for key, item in value.items()}
+    return value
+
+
+def _from_dynamodb_value(value):
+    if isinstance(value, Decimal):
+        if value % 1 == 0:
+            return int(value)
+        return float(value)
+    if isinstance(value, list):
+        return [_from_dynamodb_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _from_dynamodb_value(item) for key, item in value.items()}
+    return value
 
 
 class DynamoDBUserStore:
@@ -26,13 +49,13 @@ class DynamoDBUserStore:
 
     def add_doc(self, user_id: str, doc_id: str, metadata: dict) -> None:
         self.table.put_item(
-            Item={
+            Item=_dynamodb_value({
                 "user_id": user_id,
                 "sk": f"DOC#{doc_id}",
                 "doc_id": doc_id,
                 "created_at": _now(),
                 **metadata,
-            }
+            })
         )
 
     def list_docs(self, user_id: str) -> list:
@@ -40,7 +63,7 @@ class DynamoDBUserStore:
             KeyConditionExpression="user_id = :u AND begins_with(sk, :p)",
             ExpressionAttributeValues={":u": user_id, ":p": "DOC#"},
         )
-        return resp.get("Items", [])
+        return [_from_dynamodb_value(item) for item in resp.get("Items", [])]
 
     def log_query(self, user_id: str, query: str, answer: str) -> None:
         ts = _now()
@@ -61,7 +84,7 @@ class DynamoDBUserStore:
             ScanIndexForward=False,
             Limit=limit,
         )
-        return resp.get("Items", [])
+        return [_from_dynamodb_value(item) for item in resp.get("Items", [])]
 
     def add_flashcard(self, user_id: str, doc_id: str, flashcard_id: str, question: str, answer: str) -> None:
         self.table.put_item(
@@ -84,7 +107,7 @@ class DynamoDBUserStore:
         items = resp.get("Items", [])
         if doc_id:
             items = [item for item in items if item.get("doc_id") == doc_id]
-        return items
+        return [_from_dynamodb_value(item) for item in items]
 
     def delete_flashcard(self, user_id: str, flashcard_id: str) -> None:
         self.table.delete_item(
@@ -117,7 +140,7 @@ class DynamoDBUserStore:
         items = resp.get("Items", [])
         if doc_id:
             items = [item for item in items if item.get("doc_id") == doc_id]
-        return items
+        return [_from_dynamodb_value(item) for item in items]
 
     def delete_quiz_question(self, user_id: str, quiz_id: str) -> None:
         self.table.delete_item(
@@ -738,5 +761,3 @@ class MySQLUserStore:
                 "DELETE FROM user_quizzes WHERE user_id = %s AND id = %s",
                 (user_id, quiz_id),
             )
-
-

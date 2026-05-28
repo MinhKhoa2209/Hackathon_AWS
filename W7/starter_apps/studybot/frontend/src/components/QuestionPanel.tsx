@@ -1,26 +1,120 @@
-import { Check, Copy, FileText, MessageSquareText, Send, Sparkles } from "lucide-react";
-import { useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  FileText,
+  MessageSquareText,
+  RefreshCw,
+  Send,
+  Sparkles,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Citation, QueryResponse, StudyDoc } from "../api";
 import type { Dictionary } from "../i18n";
 
+/* ── Types ──────────────────────────────────────────────────── */
+type MessageRole = "user" | "assistant" | "error" | "loading";
+
+type ChatMessage = {
+  id: string;
+  role: MessageRole;
+  content: string;
+  citations?: Citation[];
+  timestamp: Date;
+  question?: string; // stored so we can retry
+};
+
+/* ── Props ──────────────────────────────────────────────────── */
 type Props = {
   t: Dictionary;
   busy: boolean;
-  answer: QueryResponse | null;
   docs: StudyDoc[];
-  onAsk: (question: string) => void;
+  onAsk: (question: string) => Promise<QueryResponse>;
 };
 
-export function QuestionPanel({ t, busy, answer, docs, onAsk }: Props) {
+/* ── Component ──────────────────────────────────────────────── */
+export function QuestionPanel({ t, busy, docs, onAsk }: Props) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
+  const [localBusy, setLocalBusy] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const isBusy = busy || localBusy;
+
+  function scrollToBottom() {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isBusy) return;
+
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: trimmed,
+      timestamp: new Date(),
+    };
+    const loadingId = crypto.randomUUID();
+    const loadingMsg: ChatMessage = {
+      id: loadingId,
+      role: "loading",
+      content: "",
+      timestamp: new Date(),
+      question: trimmed,
+    };
+
+    setMessages((prev) => [...prev, userMsg, loadingMsg]);
+    setQuestion("");
+    setLocalBusy(true);
+
+    try {
+      const response = await onAsk(trimmed);
+      const aiMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: response.answer,
+        citations: response.citations,
+        timestamp: new Date(),
+        question: trimmed,
+      };
+      setMessages((prev) => prev.map((m) => (m.id === loadingId ? aiMsg : m)));
+    } catch (err) {
+      const errMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "error",
+        content: err instanceof Error ? err.message : "Something went wrong. Please try again.",
+        timestamp: new Date(),
+        question: trimmed,
+      };
+      setMessages((prev) => prev.map((m) => (m.id === loadingId ? errMsg : m)));
+    } finally {
+      setLocalBusy(false);
+    }
+  }, [isBusy, onAsk]);
 
   function submit() {
-    const value = question.trim();
-    if (value) { onAsk(value); setQuestion(""); }
+    void sendMessage(question);
+  }
+
+  function retry(msg: ChatMessage) {
+    if (!msg.question) return;
+    void sendMessage(msg.question);
+  }
+
+  function clearHistory() {
+    setMessages([]);
   }
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-scale">
+    <div className="flex flex-col gap-0 animate-fade-scale" style={{ minHeight: "calc(100vh - 10rem)" }}>
       {/* Workspace header */}
       <div className="workspace-header">
         <div
@@ -29,213 +123,340 @@ export function QuestionPanel({ t, busy, answer, docs, onAsk }: Props) {
         >
           <MessageSquareText className="h-5 w-5 text-white" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h2 className="workspace-title">{t.askTitle}</h2>
           <p className="workspace-subtitle">Grounded answers from your uploaded documents</p>
         </div>
+        {messages.length > 0 && (
+          <button
+            className="btn-quiet text-xs"
+            onClick={clearHistory}
+            title="Clear conversation"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
-      {/* Input bar */}
+      {/* Chat window */}
       <div
-        className="flex gap-3 rounded-2xl p-2"
+        className="flex flex-col flex-1 rounded-2xl overflow-hidden"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border-strong)",
           boxShadow: "var(--card-shadow)",
+          minHeight: "420px",
         }}
       >
-        <input
-          className="flex-1 rounded-xl px-4 py-3 text-sm outline-none"
-          style={{
-            background: "transparent",
-            color: "var(--text-primary)",
-            minHeight: "3rem",
-          }}
-          value={question}
-          placeholder={t.askPlaceholder}
-          onChange={(event) => setQuestion(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
-          }}
-          id="ask-question-input"
-        />
-        <button
-          className="btn-primary shrink-0 gap-2 self-end"
-          disabled={busy || !question.trim()}
-          onClick={submit}
-          id="ask-submit-btn"
-          style={{ minWidth: "7rem", height: "3rem" }}
-        >
-          {busy ? (
-            <>
-              <TypingDots />
-              {t.askBusy}
-            </>
+        {/* Message list */}
+        <div className="chat-messages flex-1" style={{ minHeight: "320px", maxHeight: "60vh" }}>
+          {messages.length === 0 ? (
+            <EmptyState />
           ) : (
-            <>
-              <Send className="h-4 w-4" />
-              {t.askButton}
-            </>
+            messages.map((msg) => (
+              <MessageRow
+                key={msg.id}
+                msg={msg}
+                docs={docs}
+                onRetry={retry}
+              />
+            ))
           )}
-        </button>
-      </div>
+          <div ref={bottomRef} />
+        </div>
 
-      {/* Answer area */}
-      {answer ? (
-        <div className="grid gap-4 animate-slide-up">
-          {/* AI response card */}
-          <div
-            className="rounded-2xl p-5"
+        {/* Input bar */}
+        <div className="p-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <div className="chat-input-bar">
+            <textarea
+              ref={inputRef}
+              className="flex-1 resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+              style={{
+                background: "transparent",
+                color: "var(--text-primary)",
+                minHeight: "2.5rem",
+                maxHeight: "7rem",
+                lineHeight: "1.6",
+              }}
+              value={question}
+              placeholder={t.askPlaceholder}
+              rows={1}
+              onChange={(e) => {
+                setQuestion(e.target.value);
+                // Auto-resize
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 112)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              id="ask-question-input"
+            />
+            <button
+              className="btn-primary shrink-0 self-end"
+              disabled={isBusy || !question.trim()}
+              onClick={submit}
+              id="ask-submit-btn"
+              style={{ minWidth: "5.5rem", height: "2.5rem" }}
+            >
+              {isBusy ? (
+                <>
+                  <TypingDots />
+                  <span className="hidden sm:inline">{t.askBusy}</span>
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t.askButton}</span>
+                </>
+              )}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Enter to send · Shift+Enter for new line
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Empty state ─────────────────────────────────────────────── */
+function EmptyState() {
+  const prompts = [
+    "What is the main topic of the document?",
+    "Summarize the key concepts for me.",
+    "What are the most important points to remember?",
+    "Explain the relationship between the main ideas.",
+  ];
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center animate-fade-in">
+      <div
+        className="mb-4 grid h-14 w-14 place-items-center rounded-2xl"
+        style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.15)" }}
+      >
+        <MessageSquareText className="h-7 w-7" style={{ color: "#8b5cf6", opacity: 0.6 }} />
+      </div>
+      <p className="text-base font-semibold" style={{ color: "var(--text-secondary)" }}>
+        Ask anything about your documents
+      </p>
+      <p className="mt-1 text-sm max-w-xs" style={{ color: "var(--text-muted)" }}>
+        Type a question below to get AI-powered answers grounded in your uploaded content.
+      </p>
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
+        {prompts.map((p) => (
+          <button
+            key={p}
+            className="text-left rounded-xl border px-3 py-2.5 text-xs font-medium transition-all duration-150"
             style={{
-              background: "var(--surface)",
-              border: "1px solid rgba(124,58,237,0.18)",
-              boxShadow: "0 0 30px rgba(124,58,237,0.05)",
+              background: "var(--surface-2)",
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(124,58,237,0.4)";
+              (e.currentTarget as HTMLButtonElement).style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+              (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
             }}
           >
-            {/* Header row */}
-            <div className="mb-4 flex items-center gap-2.5 flex-wrap">
-              <span
-                className="grid h-7 w-7 place-items-center rounded-lg shrink-0"
-                style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)" }}
-              >
-                <Sparkles className="h-3.5 w-3.5 text-white" />
-              </span>
-              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                AI Response
-              </span>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                style={{ background: "rgba(16,185,129,0.10)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)" }}
-              >
-                Grounded
-              </span>
-              {/* Spacer */}
-              <div className="flex-1" />
-              {/* Copy button */}
-              <CopyButton text={answer.answer} />
+            {p}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Message row ─────────────────────────────────────────────── */
+function MessageRow({
+  msg,
+  docs,
+  onRetry,
+}: {
+  msg: ChatMessage;
+  docs: StudyDoc[];
+  onRetry: (msg: ChatMessage) => void;
+}) {
+  const [citationsOpen, setCitationsOpen] = useState(false);
+  const timeStr = msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (msg.role === "loading") {
+    return (
+      <div className="chat-row ai animate-fade-in">
+        <div className="flex items-end gap-2">
+          <span className="chat-avatar ai">
+            <Sparkles className="h-3 w-3" />
+          </span>
+          <div className="chat-loading-bubble">
+            <TypingDots />
+            <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>Thinking…</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (msg.role === "user") {
+    return (
+      <div className="chat-row user animate-slide-up">
+        <div className="flex items-end gap-2 justify-end">
+          <div className="chat-bubble user">{msg.content}</div>
+          <span className="chat-avatar user shrink-0">You</span>
+        </div>
+        <div className="chat-meta justify-end">
+          <span>{timeStr}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (msg.role === "error") {
+    return (
+      <div className="chat-row ai animate-slide-up">
+        <div className="flex items-end gap-2">
+          <span className="chat-avatar ai shrink-0">
+            <Sparkles className="h-3 w-3" />
+          </span>
+          <div className="chat-bubble error">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-semibold text-xs">Error</span>
             </div>
+            <p className="text-sm">{msg.content}</p>
+            <button
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold underline underline-offset-2 hover:opacity-70 transition-opacity"
+              onClick={() => onRetry(msg)}
+            >
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        </div>
+        <div className="chat-meta">
+          <span>{timeStr}</span>
+        </div>
+      </div>
+    );
+  }
 
-            {/* Rich rendered answer */}
-            <MarkdownAnswer text={answer.answer} />
-
-            {/* Blinking cursor while waiting */}
-            {busy && (
-              <span
-                className="mt-2 ml-0.5 inline-block h-[1.1em] w-0.5 align-text-bottom rounded-sm"
-                style={{
-                  background: "#8b5cf6",
-                  animation: "dot-bounce 1s ease-in-out infinite",
-                }}
-              />
-            )}
+  // assistant
+  const hasCitations = (msg.citations?.length ?? 0) > 0;
+  return (
+    <div className="chat-row ai animate-slide-up">
+      <div className="flex items-end gap-2">
+        <span className="chat-avatar ai shrink-0">
+          <Sparkles className="h-3 w-3" />
+        </span>
+        <div className="chat-bubble ai" style={{ maxWidth: "88%" }}>
+          {/* AI header */}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ background: "rgba(16,185,129,0.10)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)" }}
+            >
+              Grounded
+            </span>
+            <div className="flex-1" />
+            <CopyButton text={msg.content} />
           </div>
 
-          <CitationList t={t} citations={answer.citations} docs={docs} />
+          {/* Answer */}
+          <MarkdownAnswer text={msg.content} />
+
+          {/* Citations toggle */}
+          {hasCitations && (
+            <div className="mt-3 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+              <button
+                className="chat-citations-toggle"
+                onClick={() => setCitationsOpen((v) => !v)}
+              >
+                <FileText className="h-3 w-3" />
+                {msg.citations!.length} citation{msg.citations!.length > 1 ? "s" : ""}
+                {citationsOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
+
+              {citationsOpen && (
+                <div className="mt-2 grid gap-2 animate-slide-up">
+                  {msg.citations!.map((c, i) => (
+                    <CitationChip key={i} citation={c} index={i} docs={docs} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      ) : (
-        /* Empty state */
-        <div className="empty-state animate-fade-in">
-          <div
-            className="mb-4 grid h-14 w-14 place-items-center rounded-2xl"
-            style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.15)" }}
-          >
-            <MessageSquareText className="h-7 w-7" style={{ color: "#8b5cf6", opacity: 0.6 }} />
-          </div>
-          <p className="text-base font-semibold" style={{ color: "var(--text-secondary)" }}>
-            Ask anything
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-            Type a question above to get grounded answers from your documents
-          </p>
-        </div>
+      </div>
+      <div className="chat-meta pl-8">
+        <span>{timeStr}</span>
+        {hasCitations && !citationsOpen && (
+          <span style={{ color: "#06b6d4" }}>
+            · {msg.citations!.length} source{msg.citations!.length > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Citation chip ───────────────────────────────────────────── */
+function CitationChip({ citation, index, docs }: { citation: Citation; index: number; docs: StudyDoc[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const sourceName = getCitationSourceName(citation, docs);
+
+  return (
+    <div
+      className="rounded-lg border p-2.5 text-xs cursor-pointer transition-all duration-150"
+      style={{
+        background: "var(--surface-2)",
+        borderColor: "rgba(6,182,212,0.20)",
+      }}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="grid h-5 w-5 shrink-0 place-items-center rounded text-[10px] font-bold"
+          style={{ background: "rgba(6,182,212,0.15)", color: "#06b6d4" }}
+        >
+          {index + 1}
+        </span>
+        <span className="flex-1 truncate font-medium" style={{ color: "var(--text-primary)" }}>{sourceName}</span>
+        {typeof citation.chunk === "number" && (
+          <span className="rounded px-1.5 py-0.5" style={{ background: "rgba(124,58,237,0.08)", color: "#7c3aed" }}>
+            §{citation.chunk}
+          </span>
+        )}
+        {typeof citation.score === "number" && (
+          <span style={{ color: "var(--text-muted)" }}>{citation.score.toFixed(2)}</span>
+        )}
+        {citation.text && (
+          expanded ? <ChevronUp className="h-3 w-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+                   : <ChevronDown className="h-3 w-3 shrink-0" style={{ color: "var(--text-muted)" }} />
+        )}
+      </div>
+      {expanded && citation.text && (
+        <p
+          className="mt-2 border-l-2 pl-2.5 leading-5 animate-slide-up"
+          style={{ borderColor: "#06b6d4", color: "var(--text-secondary)" }}
+        >
+          {citation.text}
+        </p>
       )}
     </div>
   );
 }
 
-function CitationList({ t, citations, docs }: { t: Dictionary; citations: Citation[]; docs: StudyDoc[] }) {
-  return (
-    <section
-      className="rounded-2xl p-5"
-      style={{
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        boxShadow: "var(--card-shadow)",
-      }}
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <span
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg"
-          style={{ background: "rgba(6,182,212,0.12)", color: "#06b6d4" }}
-        >
-          <FileText className="h-3.5 w-3.5" />
-        </span>
-        <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-          {t.citations}
-        </h3>
-      </div>
-
-      {citations.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-          {t.noCitations}
-        </p>
-      ) : (
-        <div className="grid gap-3">
-          {citations.map((citation, index) => {
-            const sourceName = getCitationSourceName(citation, docs);
-
-            return (
-              <article
-                key={`${citation.doc_id || sourceName}-${citation.chunk ?? index}-${index}`}
-                className="rounded-xl border p-4"
-                style={{
-                  background: "linear-gradient(180deg, var(--surface), var(--surface-2))",
-                  borderColor: "var(--border)",
-                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
-                }}
-              >
-                <div className="mb-3 flex items-start gap-3">
-                  <span
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-bold"
-                    style={{ background: "rgba(6,182,212,0.12)", color: "#0891b2" }}
-                  >
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }} title={sourceName}>
-                      {sourceName}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
-                      {typeof citation.chunk === "number" && (
-                        <span className="rounded-full px-2 py-0.5" style={{ background: "rgba(124,58,237,0.08)", color: "#7c3aed" }}>
-                          Chunk {citation.chunk}
-                        </span>
-                      )}
-                      {typeof citation.score === "number" && (
-                        <span>Relevance {formatScore(citation.score)}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <p className="border-l-2 pl-3 text-sm leading-6" style={{ borderColor: "#06b6d4", color: "var(--text-secondary)" }}>
-                  {citation.text || "No citation text returned."}
-                </p>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
+/* ── Helpers ─────────────────────────────────────────────────── */
 function getCitationSourceName(citation: Citation, docs: StudyDoc[]) {
   if (citation.filename) return citation.filename;
-
-  const docName = docs.find((doc) => doc.doc_id === citation.doc_id)?.filename;
+  const docName = docs.find((d) => d.doc_id === citation.doc_id)?.filename;
   if (docName) return docName;
-
   const sourceName = getFilenameFromSource(citation.source);
   return sourceName || citation.doc_id || "Uploaded document";
 }
@@ -245,7 +466,7 @@ function getFilenameFromSource(source: unknown): string | null {
   const values = Object.values(source as Record<string, unknown>);
   for (const value of values) {
     if (typeof value === "string") {
-      const parts = decodeURIComponent(value).split(/[\\/]/).filter(Boolean);
+      const parts = decodeURIComponent(value).split(/[/\\]/).filter(Boolean);
       const clean = parts[parts.length - 1];
       if (clean) return clean;
     }
@@ -257,19 +478,16 @@ function getFilenameFromSource(source: unknown): string | null {
   return null;
 }
 
-function formatScore(score: number) {
-  return score >= 1 ? score.toFixed(0) : score.toFixed(2);
-}
-
-/* ── Typing indicator ─────────────────────────────────────── */
+/* ── Typing indicator ─────────────────────────────────────────── */
 function TypingDots() {
   return (
     <span className="inline-flex items-end gap-0.5 pb-0.5">
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="inline-block h-1 w-1 rounded-full bg-white"
+          className="inline-block h-1.5 w-1.5 rounded-full"
           style={{
+            background: "currentColor",
             animation: "dot-bounce 1.2s ease-in-out infinite",
             animationDelay: `${i * 160}ms`,
           }}
@@ -279,7 +497,7 @@ function TypingDots() {
   );
 }
 
-/* ── Copy button with feedback ────────────────────────────── */
+/* ── Copy button ─────────────────────────────────────────────── */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -293,13 +511,13 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all duration-150"
+      className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-medium transition-all duration-150"
       style={{
         background: copied ? "rgba(16,185,129,0.10)" : "var(--surface-2)",
         color: copied ? "#10b981" : "var(--text-muted)",
         border: `1px solid ${copied ? "rgba(16,185,129,0.3)" : "var(--border)"}`,
       }}
-      title="Copy answer to clipboard"
+      title="Copy to clipboard"
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
       {copied ? "Copied!" : "Copy"}
@@ -307,15 +525,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-/* ── Zero-dependency markdown renderer ───────────────────── */
-/**
- * Renders a subset of Markdown without any external library:
- *   - # ## ### headings
- *   - **bold** *italic* `inline code`
- *   - - / * unordered lists, 1. ordered lists
- *   - --- horizontal rule
- *   - blank lines → spacing
- */
+/* ── Zero-dependency markdown renderer ────────────────────────── */
 function MarkdownAnswer({ text }: { text: string }) {
   const lines = text.split("\n");
   const nodes: React.ReactNode[] = [];
@@ -326,17 +536,11 @@ function MarkdownAnswer({ text }: { text: string }) {
     const { type, items } = listBuf;
     nodes.push(
       type === "ul" ? (
-        <ul
-          key={`ul-${key}`}
-          style={{ margin: "0.5rem 0 0.5rem 1.35rem", color: "var(--text-primary)", fontSize: "0.875rem", lineHeight: 1.8, listStyleType: "disc" }}
-        >
+        <ul key={`ul-${key}`} style={{ margin: "0.5rem 0 0.5rem 1.25rem", listStyleType: "disc", fontSize: "0.875rem", lineHeight: 1.8 }}>
           {items.map((item, i) => <li key={i}><Inline text={item} /></li>)}
         </ul>
       ) : (
-        <ol
-          key={`ol-${key}`}
-          style={{ margin: "0.5rem 0 0.5rem 1.35rem", color: "var(--text-primary)", fontSize: "0.875rem", lineHeight: 1.8, listStyleType: "decimal" }}
-        >
+        <ol key={`ol-${key}`} style={{ margin: "0.5rem 0 0.5rem 1.25rem", listStyleType: "decimal", fontSize: "0.875rem", lineHeight: 1.8 }}>
           {items.map((item, i) => <li key={i}><Inline text={item} /></li>)}
         </ol>
       )
@@ -346,38 +550,23 @@ function MarkdownAnswer({ text }: { text: string }) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-
-    // HR
     if (/^---+$/.test(line.trim())) {
       flushList(i);
       nodes.push(<hr key={i} style={{ border: "none", borderTop: "1px solid var(--border)", margin: "0.75rem 0" }} />);
       continue;
     }
-
-    // Headings
     const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
     if (headingMatch) {
       flushList(i);
       const level = headingMatch[1].length;
-      const fontSizes = ["1.1rem", "1rem", "0.9rem"];
+      const sizes = ["1.05rem", "0.95rem", "0.875rem"];
       nodes.push(
-        <p
-          key={i}
-          style={{
-            fontWeight: 700,
-            fontSize: fontSizes[level - 1] ?? "0.875rem",
-            color: "var(--text-primary)",
-            margin: "0.9rem 0 0.2rem",
-            letterSpacing: "-0.01em",
-          }}
-        >
+        <p key={i} style={{ fontWeight: 700, fontSize: sizes[level - 1] ?? "0.875rem", margin: "0.85rem 0 0.2rem", letterSpacing: "-0.01em" }}>
           <Inline text={headingMatch[2]} />
         </p>
       );
       continue;
     }
-
-    // Unordered list
     const ulMatch = line.match(/^[-*]\s+(.*)/);
     if (ulMatch) {
       if (listBuf && listBuf.type !== "ul") flushList(i);
@@ -385,8 +574,6 @@ function MarkdownAnswer({ text }: { text: string }) {
       listBuf.items.push(ulMatch[1]);
       continue;
     }
-
-    // Ordered list
     const olMatch = line.match(/^\d+\.\s+(.*)/);
     if (olMatch) {
       if (listBuf && listBuf.type !== "ol") flushList(i);
@@ -394,31 +581,21 @@ function MarkdownAnswer({ text }: { text: string }) {
       listBuf.items.push(olMatch[1]);
       continue;
     }
-
     flushList(i);
-
-    // Blank line
     if (line.trim() === "") {
-      nodes.push(<div key={i} style={{ height: "0.45rem" }} />);
+      nodes.push(<div key={i} style={{ height: "0.4rem" }} />);
       continue;
     }
-
-    // Normal paragraph line
     nodes.push(
-      <p
-        key={i}
-        style={{ color: "var(--text-primary)", fontSize: "0.875rem", lineHeight: 1.85, margin: 0 }}
-      >
+      <p key={i} style={{ fontSize: "0.875rem", lineHeight: 1.85, margin: 0 }}>
         <Inline text={line} />
       </p>
     );
   }
   flushList(lines.length);
-
   return <div style={{ display: "flex", flexDirection: "column", gap: "0.05rem" }}>{nodes}</div>;
 }
 
-/** Renders **bold**, *italic*, `code` inline. */
 function Inline({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
   return (
@@ -430,19 +607,11 @@ function Inline({ text }: { text: string }) {
           return <em key={i}>{part.slice(1, -1)}</em>;
         if (part.startsWith("`") && part.endsWith("`"))
           return (
-            <code
-              key={i}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.8em",
-                background: "var(--surface-3)",
-                borderRadius: "0.25rem",
-                padding: "0.1em 0.35em",
-                color: "#8b5cf6",
-              }}
-            >
-              {part.slice(1, -1)}
-            </code>
+            <code key={i} style={{
+              fontFamily: "var(--font-mono)", fontSize: "0.8em",
+              background: "var(--surface-3)", borderRadius: "0.25rem",
+              padding: "0.1em 0.35em", color: "#8b5cf6",
+            }}>{part.slice(1, -1)}</code>
           );
         return <span key={i}>{part}</span>;
       })}

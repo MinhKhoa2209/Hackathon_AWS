@@ -19,10 +19,10 @@ test:
 	.venv/Scripts/python.exe -m pytest -v tests/
 
 frontend-dev:
-	cd frontend; npm run dev
+	cd frontend && npm run dev
 
 frontend-build:
-	cd frontend; npm run build
+	cd frontend && npm run build
 
 clean:
 	powershell -Command "Remove-Item -Recurse -Force _data, __pycache__, .pytest_cache, src\__pycache__, src\adapters\__pycache__, tests\__pycache__, frontend\dist, frontend\.vite -ErrorAction SilentlyContinue"

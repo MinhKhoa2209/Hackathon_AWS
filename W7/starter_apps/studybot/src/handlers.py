@@ -240,7 +240,13 @@ def _clean_answer_response(text: str) -> str:
 
 
 def _fallback_search_uploaded_docs(user_id: str, question: str, storage, userstore, top_k: int = 5) -> list[dict]:
-    tokens = {t.lower() for t in re.findall(r"\w+", question) if len(t) > 2}
+    stop = {
+        "about", "after", "also", "answer", "because", "does", "from", "have",
+        "into", "notes", "should", "that", "their", "there", "this", "what",
+        "when", "where", "which", "with", "would", "your", "the", "and",
+        "are", "for", "how", "is",
+    }
+    tokens = {t.lower() for t in re.findall(r"\w+", question) if len(t) > 2 and t.lower() not in stop}
     scored: list[dict] = []
     backup: list[dict] = []
     for doc in userstore.list_docs(user_id):
@@ -267,7 +273,11 @@ def _fallback_search_uploaded_docs(user_id: str, question: str, storage, usersto
             if score > 0:
                 scored.append({**item, "score": float(score)})
     scored.sort(key=lambda item: item["score"], reverse=True)
-    return scored[:top_k] or backup
+    if scored:
+        top_score = scored[0]["score"]
+        threshold = max(2.0, top_score * 0.5)
+        return [item for item in scored if item["score"] >= threshold][:top_k]
+    return backup
 
 
 def handle_upload(
@@ -284,8 +294,9 @@ def handle_upload(
     location = storage.put(key, data)
     extraction = _extract_text_hybrid(filename, data)
     text = extraction.text
+    ingestion = {"status": "skipped"}
     if text.strip():
-        vector_store.ingest(doc_id=doc_id, text=text, metadata={"user_id": user_id, "filename": filename})
+        ingestion = vector_store.ingest(doc_id=doc_id, text=text, metadata={"user_id": user_id, "filename": filename})
     userstore.add_doc(
         user_id=user_id,
         doc_id=doc_id,
@@ -303,6 +314,8 @@ def handle_upload(
             "image_ratio": extraction.image_ratio,
             "table_presence": extraction.table_presence,
             "scanned": extraction.scanned,
+            "ingestion_status": ingestion.get("status"),
+            "ingestion_job_id": ingestion.get("job_id"),
         },
     )
     return {
@@ -320,6 +333,8 @@ def handle_upload(
         "image_ratio": extraction.image_ratio,
         "table_presence": extraction.table_presence,
         "scanned": extraction.scanned,
+        "ingestion_status": ingestion.get("status"),
+        "ingestion_job_id": ingestion.get("job_id"),
     }
 
 
@@ -335,10 +350,38 @@ def handle_query(
 ) -> dict:
     """RAG flow: retrieve user's relevant chunks → call AI with context → log + return."""
     if vector_backend == "bedrock_kb":
-        # Production path: let Bedrock do retrieve + generate in one call
-        result = ai_client.retrieve_and_generate(query=question, kb_id=bedrock_kb_id)
+        result = {"answer": FALLBACK_ANSWER, "citations": []}
+        try:
+            result = ai_client.retrieve_and_generate(query=question, kb_id=bedrock_kb_id)
+        except Exception:
+            result = {"answer": FALLBACK_ANSWER, "citations": []}
         answer = result["answer"]
         citations = result["citations"]
+        weak_answer = any(
+            phrase in answer.lower()
+            for phrase in [
+                "unable to assist",
+                "couldn't find enough",
+                "could not find",
+                "no relevant",
+            ]
+        )
+        if not citations or weak_answer:
+            chunks = _fallback_search_uploaded_docs(user_id, question, storage=storage, userstore=userstore)
+            if chunks:
+                context = "\n\n".join(f"[chunk {i+1}] {c['text']}" for i, c in enumerate(chunks))
+                prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+                answer = _clean_answer_response(ai_client.invoke(prompt, max_tokens=512))
+                citations = [
+                    {
+                        "chunk": i + 1,
+                        "doc_id": c["doc_id"],
+                        "filename": c.get("metadata", {}).get("filename"),
+                        "score": c["score"],
+                        "text": c["text"][:200],
+                    }
+                    for i, c in enumerate(chunks)
+                ]
     else:
         # Local path: do our own retrieve then prompt
         chunks = vector_store.search(question, top_k=5, filter={"user_id": user_id})
@@ -523,9 +566,66 @@ def _stable_item_id(prefix: str, *parts: object) -> str:
     raw = "|".join(str(part) for part in parts)
     return f"{prefix}_{uuid.uuid5(uuid.NAMESPACE_URL, raw)}"
 
+
+def _normalize_doc_ids(doc_id: str | None = None, doc_ids: list[str] | None = None) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in doc_ids or []:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        ordered.append(normalized)
+        seen.add(normalized)
+    if doc_id:
+        normalized = str(doc_id).strip()
+        if normalized and normalized not in seen:
+            ordered.append(normalized)
+    if not ordered:
+        raise ValueError("At least one document must be selected")
+    return ordered
+
+
+def _combined_doc_id(doc_ids: list[str]) -> str:
+    if len(doc_ids) == 1:
+        return doc_ids[0]
+    return f"bundle:{','.join(sorted(doc_ids))}"
+
+
+def _load_selected_docs(user_id: str, doc_ids: list[str], storage, userstore) -> list[dict]:
+    docs_by_id = {doc["doc_id"]: doc for doc in userstore.list_docs(user_id)}
+    selected_docs: list[dict] = []
+    for selected_id in doc_ids:
+        doc_meta = docs_by_id.get(selected_id)
+        if not doc_meta:
+            raise ValueError(f"Document {selected_id} not found for user")
+        filename = doc_meta.get("filename", "untitled")
+        key = f"{user_id}/{selected_id}/{filename}"
+        data = storage.get(key)
+        text = _extract_text(filename, data)
+        if not text.strip():
+            raise ValueError(f"Document {filename} has no extractable text")
+        selected_docs.append({
+            "doc_id": selected_id,
+            "filename": filename,
+            "text": text,
+        })
+    return selected_docs
+
+
+def _build_combined_prompt_text(selected_docs: list[dict], total_budget: int) -> str:
+    if not selected_docs:
+        return ""
+    per_doc_budget = max(1500, total_budget // len(selected_docs))
+    sections = []
+    for item in selected_docs:
+        excerpt = item["text"][:per_doc_budget].strip()
+        sections.append(f"Document: {item['filename']}\n{excerpt}")
+    return "\n\n---\n\n".join(sections)[:total_budget]
+
 def handle_generate_flashcards(
     user_id: str,
-    doc_id: str,
+    doc_id: str | None,
+    doc_ids: list[str] | None,
     count: int,
     storage,
     userstore,
@@ -533,19 +633,10 @@ def handle_generate_flashcards(
 ) -> dict:
     import json
     import re
-    docs = userstore.list_docs(user_id)
-    doc_meta = next((d for d in docs if d["doc_id"] == doc_id), None)
-    if not doc_meta:
-        raise ValueError(f"Document {doc_id} not found for user")
-        
-    filename = doc_meta.get("filename", "untitled")
-    key = f"{user_id}/{doc_id}/{filename}"
-    data = storage.get(key)
-    text = _extract_text(filename, data)
-    if not text.strip():
-        raise ValueError("Document has no extractable text")
-        
-    sample_text = text[:8000]
+    selected_doc_ids = _normalize_doc_ids(doc_id=doc_id, doc_ids=doc_ids)
+    group_doc_id = _combined_doc_id(selected_doc_ids)
+    selected_docs = _load_selected_docs(user_id, selected_doc_ids, storage, userstore)
+    sample_text = _build_combined_prompt_text(selected_docs, total_budget=10000)
     prompt = FLASHCARD_PROMPT_TEMPLATE.format(count=count, text=sample_text)
     ai_response = ai_client.invoke(prompt, max_tokens=1024)
     
@@ -566,29 +657,36 @@ def handle_generate_flashcards(
         if not cards:
             raise ValueError(f"Failed to parse AI response: {ai_response}") from e
                 
+    existing_cards = userstore.list_flashcards(user_id, group_doc_id) if hasattr(userstore, "list_flashcards") else []
+    for existing_card in existing_cards:
+        card_id = existing_card.get("id") or existing_card.get("flashcard_id")
+        if card_id:
+            userstore.delete_flashcard(user_id, card_id)
+
     saved_cards = []
     created_at = _now_iso()
     for idx, card in enumerate(cards):
         q = card.get("question", "Question")
         a = card.get("answer", "Answer")
-        flashcard_id = _stable_item_id("card", user_id, doc_id, idx, q)
+        flashcard_id = _stable_item_id("card", user_id, group_doc_id, idx, q)
         userstore.add_flashcard(
             user_id=user_id,
-            doc_id=doc_id,
+            doc_id=group_doc_id,
             flashcard_id=flashcard_id,
             question=q,
             answer=a,
         )
         saved_cards.append({
             "id": flashcard_id,
-            "doc_id": doc_id,
+            "doc_id": group_doc_id,
+            "source_doc_ids": selected_doc_ids,
             "question": q,
             "answer": a,
             "status": "completed",
             "created_at": created_at,
         })
         
-    return {"doc_id": doc_id, "flashcards": saved_cards}
+    return {"doc_id": group_doc_id, "source_doc_ids": selected_doc_ids, "flashcards": saved_cards}
 
 def handle_list_flashcards(user_id: str, doc_id: Optional[str], userstore) -> dict:
     return {"user_id": user_id, "flashcards": userstore.list_flashcards(user_id, doc_id)}
@@ -624,7 +722,8 @@ TEXT:
 
 def handle_generate_quiz(
     user_id: str,
-    doc_id: str,
+    doc_id: str | None,
+    doc_ids: list[str] | None,
     count: int,
     storage,
     userstore,
@@ -632,19 +731,10 @@ def handle_generate_quiz(
 ) -> dict:
     import json
     import re
-    docs = userstore.list_docs(user_id)
-    doc_meta = next((d for d in docs if d["doc_id"] == doc_id), None)
-    if not doc_meta:
-        raise ValueError(f"Document {doc_id} not found for user")
-        
-    filename = doc_meta.get("filename", "untitled")
-    key = f"{user_id}/{doc_id}/{filename}"
-    data = storage.get(key)
-    text = _extract_text(filename, data)
-    if not text.strip():
-        raise ValueError("Document has no extractable text")
-        
-    sample_text = text[:8000]
+    selected_doc_ids = _normalize_doc_ids(doc_id=doc_id, doc_ids=doc_ids)
+    group_doc_id = _combined_doc_id(selected_doc_ids)
+    selected_docs = _load_selected_docs(user_id, selected_doc_ids, storage, userstore)
+    sample_text = _build_combined_prompt_text(selected_docs, total_budget=12000)
     prompt = QUIZ_PROMPT_TEMPLATE.format(count=count, text=sample_text)
     ai_response = ai_client.invoke(prompt, max_tokens=1536)
     
@@ -674,6 +764,12 @@ def handle_generate_quiz(
         if not questions:
             raise ValueError(f"Failed to parse AI response: {ai_response}") from e
                 
+    existing_quizzes = userstore.list_quizzes(user_id, group_doc_id) if hasattr(userstore, "list_quizzes") else []
+    for existing_quiz in existing_quizzes:
+        quiz_id = existing_quiz.get("id") or existing_quiz.get("quiz_id")
+        if quiz_id:
+            userstore.delete_quiz_question(user_id, quiz_id)
+
     saved_quizzes = []
     seen_questions: set[str] = set()
     created_at = _now_iso()
@@ -692,11 +788,11 @@ def handle_generate_quiz(
         correct = int(q_item.get("correct_option", 0))
         correct = min(max(correct, 0), 3)
         expl = q_item.get("explanation", "No explanation provided.")
-        quiz_id = _stable_item_id("quiz", user_id, doc_id, idx, q_text)
+        quiz_id = _stable_item_id("quiz", user_id, group_doc_id, idx, q_text)
         
         userstore.add_quiz_question(
             user_id=user_id,
-            doc_id=doc_id,
+            doc_id=group_doc_id,
             quiz_id=quiz_id,
             question=q_text,
             options=opts,
@@ -705,7 +801,8 @@ def handle_generate_quiz(
         )
         saved_quizzes.append({
             "id": quiz_id,
-            "doc_id": doc_id,
+            "doc_id": group_doc_id,
+            "source_doc_ids": selected_doc_ids,
             "question": q_text,
             "options": opts,
             "correct_option": correct,
@@ -714,7 +811,7 @@ def handle_generate_quiz(
             "created_at": created_at,
         })
         
-    return {"doc_id": doc_id, "quizzes": saved_quizzes}
+    return {"doc_id": group_doc_id, "source_doc_ids": selected_doc_ids, "quizzes": saved_quizzes}
 
 def handle_list_quizzes(user_id: str, doc_id: Optional[str], userstore) -> dict:
     quizzes = userstore.list_quizzes(user_id, doc_id)
@@ -722,8 +819,6 @@ def handle_list_quizzes(user_id: str, doc_id: Optional[str], userstore) -> dict:
         item for item in quizzes
         if "Which statement is supported by the uploaded notes?" not in item.get("question", "")
     ]
-    if doc_id and len(cleaned) > 10:
-        cleaned = cleaned[:10]
     return {"user_id": user_id, "quizzes": cleaned}
 
 def handle_delete_quiz(user_id: str, quiz_id: str, userstore) -> dict:

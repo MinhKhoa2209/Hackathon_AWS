@@ -31,7 +31,7 @@ const themeStorageKey = "studybot.theme";
 const activeTabStorageKey = "studybot.activeTab";
 const sidebarCollapsedKey = "studybot.sidebarCollapsed";
 const selectedDocStorageKey = "studybot.selectedDocId";
-const answerStorageKey = "studybot.lastAnswer.v2";
+// answerStorageKey removed — chat history is managed inside QuestionPanel
 
 function getInitialTheme(): "dark" | "light" {
   if (typeof window === "undefined") return "dark";
@@ -97,7 +97,6 @@ export function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [docs, setDocs] = useState<StudyDoc[]>([]);
   const [selectedDoc, setSelectedDoc] = useState<StudyDoc | null>(null);
-  const [answer, setAnswer] = useState<QueryResponse | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [summary, setSummary] = useState<StudySummary | null>(null);
   const [generatedSummaryDocId, setGeneratedSummaryDocId] = useState<string | null>(null);
@@ -193,7 +192,6 @@ export function App() {
 
     async function boot() {
       localStorage.removeItem("studybot.summaries.v2");
-      localStorage.removeItem(answerStorageKey);
       const config = await loadRuntimeConfig();
       configureApi({
         apiBaseUrl: config.apiBaseUrl,
@@ -203,7 +201,6 @@ export function App() {
       api.health(addDebug)
         .then((response) => setHealth(response))
         .catch(() => setHealth(null));
-      setAnswer(null);
       void refreshDocs();
       void refreshDashboard();
       api.listFlashcards(undefined, addDebug)
@@ -246,17 +243,59 @@ export function App() {
     }
   }
 
-  async function ask(question: string) {
+  async function ask(question: string): Promise<QueryResponse> {
     setBusy((value) => ({ ...value, ask: true }));
-    setAnswer(null);
     try {
       const response = await api.query(question, addDebug);
-      setAnswer(response);
+      void refreshDashboard();
+      return response;
+    } finally {
+      setBusy((value) => ({ ...value, ask: false }));
+    }
+  }
+
+  // Batch handlers for DocumentLibrary
+  async function batchGenerateQuiz(docIds: string[], count: number, _difficulty?: string, _qType?: string) {
+    try {
+      const response = await api.generateQuiz(docIds, count, addDebug);
+      setQuiz((items) => [
+        ...response.quizzes,
+        ...items.filter((item) => item.doc_id !== response.doc_id)
+      ]);
+      showToast(t.quizGenerated, "success");
+      setActiveTab("quiz");
       void refreshDashboard();
     } catch (error) {
       showToast(error instanceof Error ? error.message : t.actionFailed, "error");
-    } finally {
-      setBusy((value) => ({ ...value, ask: false }));
+      throw error;
+    }
+  }
+
+  async function batchGenerateCards(docIds: string[], count: number, _style?: string) {
+    try {
+      const response = await api.generateFlashcards(docIds, count, addDebug);
+      setFlashcards((items) => [
+        ...response.flashcards,
+        ...items.filter((item) => item.doc_id !== response.doc_id)
+      ]);
+      showToast(t.cardsGenerated, "success");
+      setActiveTab("cards");
+      void refreshDashboard();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+      throw error;
+    }
+  }
+
+  async function batchGenerateSummary(docIds: string[]) {
+    for (const docId of docIds) {
+      const doc = docs.find((d) => d.doc_id === docId);
+      if (!doc) continue;
+      try {
+        await generateSummary(doc);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+      }
     }
   }
 
@@ -264,7 +303,7 @@ export function App() {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
-      const response = await api.listFlashcards(doc.doc_id, addDebug);
+      const response = await api.listFlashcards(undefined, addDebug);
       setFlashcards(response.flashcards);
       showToast(t.cardsLoaded, "success");
       setActiveTab("cards");
@@ -316,14 +355,14 @@ export function App() {
       ? summary
       : null;
 
-  async function generateFlashcards(doc: StudyDoc) {
+  async function generateFlashcards(doc: StudyDoc, count = 5) {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
-      const response = await api.generateFlashcards(doc.doc_id, 5, addDebug);
+      const response = await api.generateFlashcards([doc.doc_id], count, addDebug);
       setFlashcards((items) => [
         ...response.flashcards,
-        ...items.filter((item) => item.doc_id !== doc.doc_id)
+        ...items.filter((item) => item.doc_id !== response.doc_id)
       ]);
       showToast(t.cardsGenerated, "success");
       setActiveTab("cards");
@@ -348,7 +387,7 @@ export function App() {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
-      const response = await api.listQuiz(doc.doc_id, addDebug);
+      const response = await api.listQuiz(undefined, addDebug);
       setQuiz(response.quizzes);
       setActiveTab("quiz");
     } catch (error) {
@@ -358,14 +397,14 @@ export function App() {
     }
   }
 
-  async function generateQuiz(doc: StudyDoc) {
+  async function generateQuiz(doc: StudyDoc, count = 10) {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
     try {
-      const response = await api.generateQuiz(doc.doc_id, 10, addDebug);
+      const response = await api.generateQuiz([doc.doc_id], count, addDebug);
       setQuiz((items) => [
         ...response.quizzes,
-        ...items.filter((item) => item.doc_id !== doc.doc_id)
+        ...items.filter((item) => item.doc_id !== response.doc_id)
       ]);
       showToast(t.quizGenerated, "success");
       setActiveTab("quiz");
@@ -385,6 +424,9 @@ export function App() {
     }),
     [docs.length, flashcards.length, quiz.length]
   );
+
+  // Wide tabs that benefit from more horizontal space
+  const wideTab = activeTab === "library" || activeTab === "summary" || activeTab === "cards" || activeTab === "quiz";
 
   return (
     <div className="app-shell">
@@ -414,7 +456,7 @@ export function App() {
 
         {/* Workspace */}
         <main className="workspace" id="workspace">
-          <div className="mx-auto w-full max-w-3xl">
+          <div className={`mx-auto w-full ${wideTab ? "max-w-5xl" : "max-w-3xl"}`}>
             {activeTab === "upload" && (
               <UploadPanel t={t} busy={busy.upload} onUpload={upload} existingDocs={docs} />
             )}
@@ -442,6 +484,9 @@ export function App() {
                 onGenerateQuiz={generateQuiz}
                 onTakeQuiz={loadQuiz}
                 onGenerateSummary={generateSummary}
+                onBatchGenerateQuiz={batchGenerateQuiz}
+                onBatchGenerateCards={batchGenerateCards}
+                onBatchGenerateSummary={batchGenerateSummary}
               />
             )}
 
@@ -449,6 +494,7 @@ export function App() {
               <SummaryPanel
                 t={t}
                 doc={selectedDoc}
+                docs={docs}
                 summary={visibleSummary}
                 busy={busy.summary}
                 onGenerate={generateSummary}
@@ -456,20 +502,21 @@ export function App() {
             )}
 
             {activeTab === "ask" && (
-              <QuestionPanel t={t} busy={busy.ask} answer={answer} docs={docs} onAsk={ask} />
+              <QuestionPanel t={t} busy={busy.ask} docs={docs} onAsk={ask} />
             )}
 
             {activeTab === "cards" && (
               <FlashcardDeck
                 t={t}
                 doc={selectedDoc}
+                docs={docs}
                 cards={flashcards}
                 onDelete={deleteFlashcard}
               />
             )}
 
             {activeTab === "quiz" && (
-              <QuizPanel t={t} doc={selectedDoc} questions={quiz} />
+              <QuizPanel t={t} doc={selectedDoc} docs={docs} questions={quiz} />
             )}
 
             {activeTab === "dev" && (

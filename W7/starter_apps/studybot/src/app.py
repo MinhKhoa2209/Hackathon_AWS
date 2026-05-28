@@ -147,7 +147,8 @@ def generate_summary(req: SummaryGenerateRequest, request: Request, x_user_id: s
 
 
 class FlashcardGenerateRequest(BaseModel):
-    doc_id: str
+    doc_id: str | None = None
+    doc_ids: list[str] | None = None
     count: int = 5
 
 
@@ -158,6 +159,7 @@ def generate_flashcards(req: FlashcardGenerateRequest, request: Request, x_user_
         return handlers.handle_generate_flashcards(
             user_id=user_id,
             doc_id=req.doc_id,
+            doc_ids=req.doc_ids,
             count=req.count,
             storage=storage,
             userstore=userstore,
@@ -182,7 +184,8 @@ def delete_flashcard(flashcard_id: str, request: Request, x_user_id: str | None 
 
 
 class QuizGenerateRequest(BaseModel):
-    doc_id: str
+    doc_id: str | None = None
+    doc_ids: list[str] | None = None
     count: int = 5
 
 
@@ -193,6 +196,7 @@ def generate_quiz(req: QuizGenerateRequest, request: Request, x_user_id: str | N
         return handlers.handle_generate_quiz(
             user_id=user_id,
             doc_id=req.doc_id,
+            doc_ids=req.doc_ids,
             count=req.count,
             storage=storage,
             userstore=userstore,

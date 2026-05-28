@@ -5,7 +5,7 @@ from src.adapters import ai, storage, userstore, vector
 
 def make_ai():
     if config.ai_backend == "bedrock":
-        return ai.BedrockAI(region=config.aws_region, model_id=config.ai_model_id)
+        return ai.BedrockAI(region=config.aws_region, model_id=config.ai_model_id, model_arn=config.ai_model_arn)
     if config.ai_backend == "local":
         return ai.LocalAI()
     raise ValueError(f"Unknown AI_BACKEND: {config.ai_backend!r} (expected 'bedrock' or 'local')")

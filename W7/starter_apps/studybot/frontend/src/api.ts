@@ -89,6 +89,7 @@ export type UploadResponse = {
 export type Flashcard = {
   id: string;
   doc_id: string;
+  source_doc_ids?: string[];
   question: string;
   answer: string;
   created_at?: string;
@@ -98,6 +99,7 @@ export type Flashcard = {
 export type QuizQuestion = {
   id: string;
   doc_id: string;
+  source_doc_ids?: string[];
   question: string;
   options: string[];
   correct_option: number;
@@ -237,10 +239,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ doc_id: docId })
     }, debug),
-  generateFlashcards: (docId: string, count = 5, debug?: DebugCallback) =>
-    request<{ doc_id: string; flashcards: Flashcard[] }>("/flashcards/generate", {
+  generateFlashcards: (docIds: string | string[], count = 5, debug?: DebugCallback) =>
+    request<{ doc_id: string; source_doc_ids?: string[]; flashcards: Flashcard[] }>("/flashcards/generate", {
       method: "POST",
-      body: JSON.stringify({ doc_id: docId, count })
+      body: JSON.stringify(
+        Array.isArray(docIds)
+          ? { doc_ids: docIds, count }
+          : { doc_id: docIds, count }
+      )
     }, debug),
   listFlashcards: (docId?: string, debug?: DebugCallback) =>
     request<{ user_id: string; flashcards: Flashcard[] }>(
@@ -250,10 +256,14 @@ export const api = {
     ),
   deleteFlashcard: (id: string, debug?: DebugCallback) =>
     request<{ status: string; flashcard_id: string }>(`/flashcards/${id}`, { method: "DELETE" }, debug),
-  generateQuiz: (docId: string, count = 5, debug?: DebugCallback) =>
-    request<{ doc_id: string; quizzes: QuizQuestion[] }>("/quiz/generate", {
+  generateQuiz: (docIds: string | string[], count = 5, debug?: DebugCallback) =>
+    request<{ doc_id: string; source_doc_ids?: string[]; quizzes: QuizQuestion[] }>("/quiz/generate", {
       method: "POST",
-      body: JSON.stringify({ doc_id: docId, count })
+      body: JSON.stringify(
+        Array.isArray(docIds)
+          ? { doc_ids: docIds, count }
+          : { doc_id: docIds, count }
+      )
     }, debug),
   listQuiz: (docId?: string, debug?: DebugCallback) =>
     request<{ user_id: string; quizzes: QuizQuestion[] }>(
