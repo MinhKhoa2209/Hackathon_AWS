@@ -6,8 +6,10 @@ locals {
     "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.ai_model_id}"
   )
   tags = {
-    Project     = var.project_name
-    Environment = var.environment
+    Project     = "W7Capstone"
+    Team        = "G8"
+    Owner       = "xops"
+    Environment = "hackathon"
     ManagedBy   = "terraform"
   }
 }
@@ -75,10 +77,14 @@ module "frontend" {
 module "observability" {
   source = "./modules/observability"
 
-  name             = local.name
-  aws_region       = var.aws_region
-  lambda_name      = module.lambda_api.lambda_name
-  api_gateway_name = module.lambda_api.api_name
+  name                = local.name
+  aws_region          = var.aws_region
+  lambda_name         = module.lambda_api.lambda_name
+  api_gateway_name    = module.lambda_api.api_name
+  api_gateway_id      = module.lambda_api.api_id
+  dynamodb_table_name = module.database.table_name
+  docs_bucket_name    = module.storage.docs_bucket_name
+  ai_model_id         = var.ai_model_id
 }
 
 module "budget" {

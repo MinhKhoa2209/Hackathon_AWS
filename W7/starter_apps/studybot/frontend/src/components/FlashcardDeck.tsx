@@ -312,6 +312,20 @@ export function FlashcardDeck({ t, doc, docs, cards, onDelete }: Props) {
                             {col.cards[0]?.created_at && ` · ${new Date(col.cards[0].created_at).toLocaleDateString()}`}
                           </p>
                         </div>
+                        {/* Delete collection button */}
+                        <button
+                          className="btn-icon shrink-0"
+                          style={{ width: "2rem", height: "2rem", color: "#ef4444" }}
+                          title="Delete collection"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete all ${col.cards.length} cards in this collection?`)) {
+                              col.cards.forEach((c) => onDelete(c.id));
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <span className="badge-violet">{col.cards.length} cards</span>

@@ -90,14 +90,15 @@ export function Header({ t, language, onLanguageChange, health, theme, onThemeTo
               }}
               aria-expanded={connOpen}
             >
+              <Server className="h-3 w-3 shrink-0" />
               {health ? (
                 <>
                   <span
                     className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0"
                     style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
                   />
-                  <span className="hidden md:inline">{t.healthOk}</span>
-                  <span className="md:hidden">OK</span>
+                  <span className="hidden md:inline">Connection Info</span>
+                  <span className="md:hidden">Info</span>
                 </>
               ) : (
                 <>
@@ -116,20 +117,24 @@ export function Header({ t, language, onLanguageChange, health, theme, onThemeTo
               <div
                 className="absolute right-0 top-full mt-2 z-50 min-w-[220px] rounded-xl p-3 shadow-xl animate-slide-up"
                 style={{
-                  background: "var(--surface-1)",
+                  position: "absolute",
+                  right: 0,
+                  top: "100%",
+                  marginTop: "0.5rem",
+                  zIndex: 9999,
+                  background: "var(--surface)",
                   border: "1px solid var(--border)",
                   boxShadow: "0 8px 32px rgba(0,0,0,0.24)",
                 }}
               >
-                {/* Header row */}
-                <div className="flex items-center gap-2 mb-3 pb-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                  <Server className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
-                  <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-                    Connection Info
+                {/* Backend rows */}
+                <div className="flex items-center justify-between py-1.5 mb-2">
+                  <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>Backend Lambda</span>
+                  <span className="rounded-md px-2 py-0.5 text-[11px] font-semibold badge-violet">
+                    AWS
                   </span>
                 </div>
 
-                {/* Backend rows */}
                 {health && Object.entries(health.backends).map(([name, value]) => (
                   <div key={name} className="flex items-center justify-between py-1.5">
                     <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>{name}</span>
@@ -140,23 +145,6 @@ export function Header({ t, language, onLanguageChange, health, theme, onThemeTo
                     </span>
                   </div>
                 ))}
-
-                {/* API endpoint */}
-                {apiBase && (
-                  <div
-                    className="mt-2 pt-2.5 flex items-start gap-2"
-                    style={{ borderTop: "1px solid var(--border)" }}
-                  >
-                    <span className="text-xs shrink-0 mt-0.5" style={{ color: "var(--text-muted)" }}>API</span>
-                    <span
-                      className="text-[11px] font-mono break-all leading-4"
-                      style={{ color: "var(--text-secondary)" }}
-                      title={apiBase}
-                    >
-                      {apiBase.replace(/^https?:\/\//, "")}
-                    </span>
-                  </div>
-                )}
               </div>
             )}
           </div>

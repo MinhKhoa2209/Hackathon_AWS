@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from src.metrics import emit as emit_metric
+
 
 PROMPT_TEMPLATE = """You are a grounded AI assistant.
 
@@ -280,6 +282,97 @@ def _fallback_search_uploaded_docs(user_id: str, question: str, storage, usersto
     return backup
 
 
+def handle_upload_presign(
+    user_id: str,
+    filename: str,
+    content_type: str,
+    size: int,
+    storage,
+) -> dict:
+    """Generate a presigned PUT URL for direct S3 upload."""
+    import uuid
+    doc_id = str(uuid.uuid4())
+    key = f"{user_id}/{doc_id}/{filename}"
+
+    if not hasattr(storage, "generate_presigned_put"):
+        raise ValueError("Presigned upload requires S3 storage backend")
+
+    presigned_url = storage.generate_presigned_put(key, content_type=content_type)
+    return {
+        "doc_id": doc_id,
+        "key": key,
+        "upload_url": presigned_url,
+        "filename": filename,
+    }
+
+
+def handle_s3_event(event: dict, storage, userstore, vector_store) -> dict:
+    """Process S3 event notification after direct upload. Extract text and ingest."""
+    import uuid
+    results = []
+    for record in event.get("Records", []):
+        bucket = record["s3"]["bucket"]["name"]
+        key = record["s3"]["object"]["key"]
+
+        # Parse key: {user_id}/{doc_id}/{filename}
+        parts = key.split("/", 2)
+        if len(parts) < 3:
+            continue
+        user_id, doc_id, filename = parts[0], parts[1], parts[2]
+
+        # Download file from S3
+        try:
+            data = storage.get(key)
+        except Exception:
+            # File may have been deleted (delete marker) — skip
+            continue
+        if not data:
+            continue
+
+        # Extract text
+        extraction = _extract_text_hybrid(filename, data)
+        text = extraction.text
+
+        # Ingest into vector store
+        ingestion = {"status": "skipped"}
+        if text.strip():
+            try:
+                ingestion = vector_store.ingest(
+                    doc_id=doc_id,
+                    text=text,
+                    metadata={"user_id": user_id, "filename": filename},
+                )
+            except Exception as exc:
+                ingestion = {"status": "failed", "error": str(exc)}
+
+        # Record in userstore
+        userstore.add_doc(
+            user_id=user_id,
+            doc_id=doc_id,
+            metadata={
+                "filename": filename,
+                "size": len(data),
+                "location": f"s3://{bucket}/{key}",
+                "chars": len(text),
+                "status": "completed" if text.strip() else "failed",
+                "extraction_method": extraction.method,
+                "confidence_score": extraction.confidence,
+                "processing_time": extraction.processing_time,
+                "fallback_reason": extraction.fallback_reason,
+                "text_density": extraction.text_density,
+                "image_ratio": extraction.image_ratio,
+                "table_presence": extraction.table_presence,
+                "scanned": extraction.scanned,
+                "ingestion_status": ingestion.get("status"),
+                "ingestion_job_id": ingestion.get("job_id"),
+                "ingestion_error": ingestion.get("error"),
+            },
+        )
+        results.append({"doc_id": doc_id, "filename": filename, "status": "processed"})
+
+    return {"processed": len(results), "results": results}
+
+
 def handle_upload(
     user_id: str,
     filename: str,
@@ -329,6 +422,9 @@ def handle_upload(
             "ingestion_error": ingestion.get("error"),
         },
     )
+    emit_metric("DocsUploaded", 1, dimensions={"UserId": user_id})
+    emit_metric("UploadSizeBytes", len(data), unit="Bytes", dimensions={"UserId": user_id})
+
     return {
         "doc_id": doc_id,
         "filename": filename,
@@ -418,6 +514,7 @@ def handle_query(
             ]
 
     userstore.log_query(user_id=user_id, query=question, answer=answer)
+    emit_metric("QuestionsAsked", 1, dimensions={"UserId": user_id})
     return {"question": question, "answer": answer, "citations": citations}
 
 
@@ -698,10 +795,16 @@ def handle_generate_flashcards(
             "created_at": created_at,
         })
         
+    emit_metric("CardsGenerated", len(saved_cards), dimensions={"UserId": user_id})
     return {"doc_id": group_doc_id, "source_doc_ids": selected_doc_ids, "flashcards": saved_cards}
 
 def handle_list_flashcards(user_id: str, doc_id: Optional[str], userstore) -> dict:
-    return {"user_id": user_id, "flashcards": userstore.list_flashcards(user_id, doc_id)}
+    flashcards = userstore.list_flashcards(user_id, doc_id)
+    # Normalize id field: DynamoDB stores as flashcard_id, frontend expects id
+    for item in flashcards:
+        if "id" not in item and "flashcard_id" in item:
+            item["id"] = item["flashcard_id"]
+    return {"user_id": user_id, "flashcards": flashcards}
 
 def handle_delete_flashcard(user_id: str, flashcard_id: str, userstore) -> dict:
     userstore.delete_flashcard(user_id, flashcard_id)
@@ -823,16 +926,38 @@ def handle_generate_quiz(
             "created_at": created_at,
         })
         
+    emit_metric("QuizGenerated", len(saved_quizzes), dimensions={"UserId": user_id})
     return {"doc_id": group_doc_id, "source_doc_ids": selected_doc_ids, "quizzes": saved_quizzes}
 
 def handle_list_quizzes(user_id: str, doc_id: Optional[str], userstore) -> dict:
     quizzes = userstore.list_quizzes(user_id, doc_id)
-    cleaned = [
-        item for item in quizzes
-        if "Which statement is supported by the uploaded notes?" not in item.get("question", "")
-    ]
+    cleaned = []
+    for item in quizzes:
+        if "Which statement is supported by the uploaded notes?" in item.get("question", ""):
+            continue
+        # Normalize id field: DynamoDB stores as quiz_id, frontend expects id
+        if "id" not in item and "quiz_id" in item:
+            item["id"] = item["quiz_id"]
+        cleaned.append(item)
     return {"user_id": user_id, "quizzes": cleaned}
 
 def handle_delete_quiz(user_id: str, quiz_id: str, userstore) -> dict:
     userstore.delete_quiz_question(user_id, quiz_id)
     return {"status": "deleted", "quiz_id": quiz_id}
+
+
+def handle_delete_doc(user_id: str, doc_id: str, userstore, storage, vector_store=None) -> dict:
+    """Delete a document record from userstore, its file from storage, and sync KB."""
+    try:
+        storage.delete(f"{user_id}/{doc_id}")
+    except Exception:
+        pass  # best-effort file deletion
+    userstore.delete_doc(user_id, doc_id)
+    # Trigger KB re-sync so deleted doc is removed from vector index
+    if vector_store and hasattr(vector_store, "ingest"):
+        try:
+            vector_store.ingest(doc_id=doc_id, text="")
+        except Exception:
+            pass  # best-effort KB sync
+    emit_metric("DocsDeleted", 1, dimensions={"UserId": user_id})
+    return {"status": "deleted", "doc_id": doc_id}

@@ -69,6 +69,7 @@ export function DocumentLibrary({
   const [quizModalOpen, setQuizModalOpen] = useState(false);
   const [cardsModalOpen, setCardsModalOpen] = useState(false);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
+  const [singleDocForModal, setSingleDocForModal] = useState<StudyDoc | null>(null);
 
   const allChecked = docs.length > 0 && checkedIds.size === docs.length;
   const someChecked = checkedIds.size > 0;
@@ -412,7 +413,7 @@ export function DocumentLibrary({
                   </button>
                   <button
                     className="btn-ai text-xs"
-                    onClick={() => onGenerateCards(doc)}
+                    onClick={() => { setSingleDocForModal(doc); setCardsModalOpen(true); }}
                     disabled={isBusy || batchBusy}
                     id={`gen-cards-${doc.doc_id.slice(0, 8)}`}
                   >
@@ -421,7 +422,7 @@ export function DocumentLibrary({
                   </button>
                   <button
                     className="btn-primary text-xs"
-                    onClick={() => onGenerateQuiz(doc)}
+                    onClick={() => { setSingleDocForModal(doc); setQuizModalOpen(true); }}
                     disabled={isBusy || batchBusy}
                     id={`gen-quiz-${doc.doc_id.slice(0, 8)}`}
                   >
@@ -438,15 +439,15 @@ export function DocumentLibrary({
       {/* Generation Modals */}
       <GenerateQuizModal
         open={quizModalOpen}
-        onClose={() => setQuizModalOpen(false)}
-        selectedDocs={selectedDocs}
+        onClose={() => { setQuizModalOpen(false); setSingleDocForModal(null); }}
+        selectedDocs={singleDocForModal ? [singleDocForModal] : selectedDocs}
         busy={batchBusy}
         onGenerate={(ids, count, difficulty, qType) => void handleBatchQuiz(ids, count, difficulty, qType)}
       />
       <GenerateCardsModal
         open={cardsModalOpen}
-        onClose={() => setCardsModalOpen(false)}
-        selectedDocs={selectedDocs}
+        onClose={() => { setCardsModalOpen(false); setSingleDocForModal(null); }}
+        selectedDocs={singleDocForModal ? [singleDocForModal] : selectedDocs}
         busy={batchBusy}
         onGenerate={(ids, count, style) => void handleBatchCards(ids, count, style)}
       />

@@ -5,6 +5,7 @@ import {
   HelpCircle,
   RotateCcw,
   Search,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +32,8 @@ type Props = {
   doc: StudyDoc | null;
   docs: StudyDoc[];
   questions: QuizQuestion[];
+  onDeleteQuiz?: (id: string) => void;
+  onDeleteQuizBatch?: (ids: string[]) => Promise<void>;
 };
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -53,7 +56,7 @@ function fmtTime(seconds: number) {
 /* ════════════════════════════════════════════════════════════════
    Main component
    ════════════════════════════════════════════════════════════════ */
-export function QuizPanel({ t, doc, docs, questions }: Props) {
+export function QuizPanel({ t, doc, docs, questions, onDeleteQuiz, onDeleteQuizBatch }: Props) {
   const [view, setView] = useState<View>("list");
   const [session, setSession] = useState<QuizSession | null>(null);
   const [qIndex, setQIndex] = useState(0);
@@ -282,17 +285,38 @@ export function QuizPanel({ t, doc, docs, questions }: Props) {
                         </div>
 
                         {/* CTA */}
-                        <button
-                          className={completed ? "btn-secondary shrink-0" : "btn-primary shrink-0"}
-                          onClick={() => startQuiz(docId, qs, docName)}
-                          id={`start-quiz-${docId.slice(0, 8)}`}
-                        >
-                          {completed ? (
-                            <><RotateCcw className="h-3.5 w-3.5" /> Retake</>
-                          ) : (
-                            <>Start Quiz</>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            className={completed ? "btn-secondary" : "btn-primary"}
+                            onClick={() => startQuiz(docId, qs, docName)}
+                            id={`start-quiz-${docId.slice(0, 8)}`}
+                          >
+                            {completed ? (
+                              <><RotateCcw className="h-3.5 w-3.5" /> Retake</>
+                            ) : (
+                              <>Start Quiz</>
+                            )}
+                          </button>
+                          {(onDeleteQuizBatch || onDeleteQuiz) && (
+                            <button
+                              className="btn-icon"
+                              style={{ width: "2rem", height: "2rem", color: "#ef4444" }}
+                              title="Delete quiz"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!confirm("Delete all questions in this quiz set?")) return;
+                                const ids = qs.map((q) => q.id).filter(Boolean);
+                                if (onDeleteQuizBatch) {
+                                  await onDeleteQuizBatch(ids);
+                                } else if (onDeleteQuiz) {
+                                  for (const id of ids) await onDeleteQuiz(id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </div>
 
                       {/* Score bar if completed */}

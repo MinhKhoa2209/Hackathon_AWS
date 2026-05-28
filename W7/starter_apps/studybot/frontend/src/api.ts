@@ -214,7 +214,47 @@ export async function request<T>(
 
 export const api = {
   health: (debug?: DebugCallback) => request<HealthResponse>("/health", {}, debug),
-  upload: (file: File, debug?: DebugCallback) => {
+  upload: async (file: File, debug?: DebugCallback) => {
+    // For files > 5MB, use presigned URL for direct S3 upload
+    const PRESIGN_THRESHOLD = 5 * 1024 * 1024; // 5MB
+
+    if (file.size > PRESIGN_THRESHOLD) {
+      // Step 1: Get presigned URL
+      const presignResp = await request<{ doc_id: string; key: string; upload_url: string; filename: string }>(
+        "/upload/presign",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            filename: file.name,
+            content_type: file.type || "application/octet-stream",
+            size: file.size,
+          }),
+        },
+        debug
+      );
+
+      // Step 2: Upload directly to S3 via presigned URL
+      const putResp = await fetch(presignResp.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+
+      if (!putResp.ok) {
+        throw new ApiError(putResp.status, { detail: "Direct S3 upload failed" });
+      }
+
+      return {
+        doc_id: presignResp.doc_id,
+        filename: presignResp.filename,
+        size: file.size,
+        chars_extracted: 0,
+        location: presignResp.key,
+        status: "processing",
+      } as UploadResponse;
+    }
+
+    // Small files: upload through Lambda (original flow)
     const body = new FormData();
     body.append("file", file);
     return request<UploadResponse>("/upload", { method: "POST", body, skipJsonHeader: true }, debug);
@@ -232,6 +272,8 @@ export const api = {
   },
   listDocs: (debug?: DebugCallback) =>
     request<{ user_id: string; docs: StudyDoc[] }>("/docs/list", {}, debug),
+  deleteDoc: (docId: string, debug?: DebugCallback) =>
+    request<{ status: string; doc_id: string }>(`/docs/${docId}`, { method: "DELETE" }, debug),
   dashboard: (debug?: DebugCallback) =>
     request<DashboardResponse>("/dashboard", {}, debug),
   generateSummary: (docId: string, debug?: DebugCallback) =>

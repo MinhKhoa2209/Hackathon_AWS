@@ -93,6 +93,27 @@ async def upload(
     )
 
 
+class PresignRequest(BaseModel):
+    filename: str
+    content_type: str = "application/octet-stream"
+    size: int = 0
+
+
+@app.post("/upload/presign")
+def upload_presign(req: PresignRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    """Generate a presigned S3 PUT URL for direct browser upload (supports files up to 5GB)."""
+    user_id = _resolve_user_id(request, x_user_id)
+    if not req.filename.strip():
+        raise HTTPException(status_code=400, detail="Filename required")
+    return handlers.handle_upload_presign(
+        user_id=user_id,
+        filename=req.filename,
+        content_type=req.content_type,
+        size=req.size,
+        storage=storage,
+    )
+
+
 @app.post("/query")
 def query(req: QueryRequest, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
     user_id = _resolve_user_id(request, x_user_id)
@@ -113,6 +134,12 @@ def query(req: QueryRequest, request: Request, x_user_id: str | None = Header(de
 @app.get("/docs/list")
 def list_docs(request: Request, x_user_id: str | None = Header(default=None)) -> dict:
     return handlers.handle_list_docs(_resolve_user_id(request, x_user_id), userstore)
+
+
+@app.delete("/docs/{doc_id}")
+def delete_doc(doc_id: str, request: Request, x_user_id: str | None = Header(default=None)) -> dict:
+    user_id = _resolve_user_id(request, x_user_id)
+    return handlers.handle_delete_doc(user_id, doc_id, userstore, storage, vector_store)
 
 
 @app.get("/queries/recent")

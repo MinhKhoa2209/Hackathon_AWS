@@ -3,7 +3,7 @@ import type { StudyDoc } from "./api";
 const BUNDLE_PREFIX = "bundle:";
 
 function fallbackDocName(docId: string) {
-  return `Doc ${docId.slice(0, 8)}`;
+  return `Deleted doc (${docId.slice(0, 8)})`;
 }
 
 function resolveDocName(docId: string, docs: StudyDoc[], fallbackDoc?: StudyDoc | null) {

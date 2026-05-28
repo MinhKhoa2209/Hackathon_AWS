@@ -65,6 +65,14 @@ class DynamoDBUserStore:
         )
         return [_from_dynamodb_value(item) for item in resp.get("Items", [])]
 
+    def delete_doc(self, user_id: str, doc_id: str) -> None:
+        self.table.delete_item(
+            Key={
+                "user_id": user_id,
+                "sk": f"DOC#{doc_id}",
+            }
+        )
+
     def log_query(self, user_id: str, query: str, answer: str) -> None:
         ts = _now()
         self.table.put_item(
@@ -228,6 +236,13 @@ class PostgresUserStore:
                 for r in cur.fetchall()
             ]
 
+    def delete_doc(self, user_id: str, doc_id: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM user_docs WHERE user_id = %s AND doc_id = %s",
+                (user_id, doc_id),
+            )
+
     def log_query(self, user_id, query, answer):
         with self.conn.cursor() as cur:
             cur.execute(
@@ -386,6 +401,13 @@ class SQLiteUserStore:
             for r in cur.fetchall()
         ]
 
+    def delete_doc(self, user_id: str, doc_id: str) -> None:
+        self.conn.execute(
+            "DELETE FROM user_docs WHERE user_id = ? AND doc_id = ?",
+            (user_id, doc_id),
+        )
+        self.conn.commit()
+
     def log_query(self, user_id, query, answer):
         self.conn.execute(
             "INSERT INTO user_queries (user_id, query, answer) VALUES (?, ?, ?)",
@@ -517,6 +539,9 @@ class DocumentDBUserStore:
             {**{k: v for k, v in d.items() if k != "_id"}}
             for d in self.docs.find({"user_id": user_id}).sort("created_at", -1)
         ]
+
+    def delete_doc(self, user_id: str, doc_id: str) -> None:
+        self.docs.delete_one({"user_id": user_id, "doc_id": doc_id})
 
     def log_query(self, user_id: str, query: str, answer: str) -> None:
         self.queries.insert_one({
@@ -676,6 +701,13 @@ class MySQLUserStore:
                 {"doc_id": r[0], **(json.loads(r[1]) if r[1] else {}), "created_at": str(r[2])}
                 for r in cur.fetchall()
             ]
+
+    def delete_doc(self, user_id: str, doc_id: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM user_docs WHERE user_id = %s AND doc_id = %s",
+                (user_id, doc_id),
+            )
 
     def log_query(self, user_id, query, answer):
         with self.conn.cursor() as cur:

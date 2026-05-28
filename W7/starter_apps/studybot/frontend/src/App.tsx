@@ -189,6 +189,7 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
     async function boot() {
       localStorage.removeItem("studybot.summaries.v2");
@@ -198,22 +199,43 @@ export function App() {
         userId: undefined
       });
       if (cancelled) return;
-      api.health(addDebug)
-        .then((response) => setHealth(response))
-        .catch(() => setHealth(null));
-      void refreshDocs();
-      void refreshDashboard();
-      api.listFlashcards(undefined, addDebug)
-        .then((response) => setFlashcards(response.flashcards))
-        .catch(() => undefined);
-      api.listQuiz(undefined, addDebug)
-        .then((response) => setQuiz(response.quizzes))
-        .catch(() => undefined);
+
+      // Sequential requests to avoid Lambda concurrency throttling
+      try { const h = await api.health(addDebug); setHealth(h); } catch { setHealth(null); }
+      if (cancelled) return;
+      try { const d = await api.listDocs(addDebug); setDocs(d.docs); } catch { /* */ }
+      if (cancelled) return;
+      try { const f = await api.listFlashcards(undefined, addDebug); setFlashcards(f.flashcards); } catch { /* */ }
+      if (cancelled) return;
+      try { const q = await api.listQuiz(undefined, addDebug); setQuiz(q.quizzes); } catch { /* */ }
+      if (cancelled) return;
+      try { const db = await api.dashboard(addDebug); setDashboard(db); } catch { /* */ }
     }
 
-    void boot();
+    async function poll() {
+      if (cancelled) return;
+      // Sequential to stay within concurrency limits
+      try {
+        const d = await api.listDocs(addDebug); setDocs(d.docs);
+      } catch { /* */ }
+      if (cancelled) return;
+      try {
+        const f = await api.listFlashcards(undefined, addDebug); setFlashcards(f.flashcards);
+      } catch { /* */ }
+      if (cancelled) return;
+      try {
+        const q = await api.listQuiz(undefined, addDebug); setQuiz(q.quizzes);
+      } catch { /* */ }
+    }
+
+    void boot().then(() => {
+      // Poll every 30 seconds for multi-user sync (longer interval = less throttling)
+      pollInterval = setInterval(poll, 30_000);
+    });
+
     return () => {
       cancelled = true;
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [addDebug, refreshDashboard, refreshDocs]);
 
@@ -383,6 +405,50 @@ export function App() {
     }
   }
 
+  async function deleteQuiz(id: string) {
+    try {
+      await api.deleteQuiz(id, addDebug);
+      setQuiz((items) => items.filter((item) => item.id !== id));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+    }
+  }
+
+  async function deleteQuizBatch(ids: string[]) {
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await api.deleteQuiz(id, addDebug);
+      } catch {
+        failed.push(id);
+      }
+    }
+    // Remove successfully deleted from state
+    const deletedIds = new Set(ids.filter((id) => !failed.includes(id)));
+    setQuiz((items) => items.filter((item) => !deletedIds.has(item.id)));
+    if (failed.length > 0) {
+      showToast(`${failed.length} quiz question(s) failed to delete`, "error");
+    }
+  }
+
+  async function deleteDoc(docId: string) {
+    try {
+      await api.deleteDoc(docId, addDebug);
+      setDocs((items) => items.filter((item) => item.doc_id !== docId));
+      if (selectedDoc?.doc_id === docId) setSelectedDoc(null);
+      showToast("Document deleted", "success");
+      void refreshDashboard();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t.actionFailed, "error");
+    }
+  }
+
+  async function batchDeleteDocs(docIds: string[]) {
+    for (const docId of docIds) {
+      await deleteDoc(docId);
+    }
+  }
+
   async function loadQuiz(doc: StudyDoc) {
     setSelectedDoc(doc);
     setBusy((value) => ({ ...value, docId: doc.doc_id }));
@@ -488,6 +554,7 @@ export function App() {
                 onBatchGenerateQuiz={batchGenerateQuiz}
                 onBatchGenerateCards={batchGenerateCards}
                 onBatchGenerateSummary={batchGenerateSummary}
+                onBatchDelete={batchDeleteDocs}
               />
             )}
 
@@ -517,7 +584,7 @@ export function App() {
             )}
 
             {activeTab === "quiz" && (
-              <QuizPanel t={t} doc={selectedDoc} docs={docs} questions={quiz} />
+              <QuizPanel t={t} doc={selectedDoc} docs={docs} questions={quiz} onDeleteQuiz={deleteQuiz} onDeleteQuizBatch={deleteQuizBatch} />
             )}
 
             {activeTab === "dev" && (

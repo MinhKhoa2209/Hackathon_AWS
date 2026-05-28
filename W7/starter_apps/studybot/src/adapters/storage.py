@@ -16,6 +16,7 @@ class S3Storage:
             raise ValueError("STORAGE_BUCKET must be set for S3 backend")
         self.s3 = boto3.client("s3", region_name=region)
         self.bucket = bucket
+        self.region = region
 
     def put(self, key: str, data: bytes) -> str:
         self.s3.put_object(Bucket=self.bucket, Key=key, Body=data)
@@ -28,6 +29,27 @@ class S3Storage:
     def list(self, prefix: str = "") -> list:
         resp = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
         return [obj["Key"] for obj in resp.get("Contents", [])]
+
+    def delete(self, prefix: str) -> None:
+        """Delete all objects under a prefix."""
+        objects = self.list(prefix)
+        if objects:
+            self.s3.delete_objects(
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": k} for k in objects]},
+            )
+
+    def generate_presigned_put(self, key: str, content_type: str = "application/octet-stream", expires_in: int = 3600) -> str:
+        """Generate a presigned PUT URL for direct browser upload."""
+        return self.s3.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in,
+        )
 
 
 class LocalStorage:

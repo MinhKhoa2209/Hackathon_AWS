@@ -10,3 +10,7 @@ output "api_name" {
   value = aws_apigatewayv2_api.http.name
 }
 
+output "api_id" {
+  value = aws_apigatewayv2_api.http.id
+}
+
