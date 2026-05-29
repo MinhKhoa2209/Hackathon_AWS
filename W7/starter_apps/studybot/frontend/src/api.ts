@@ -188,31 +188,58 @@ export async function request<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(runtimeApiBase + path, {
-    ...options,
-    headers
-  });
-  const raw = await response.text();
-  let payload: unknown = raw;
-  try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = raw;
+  // Retry with exponential backoff on 503 (Lambda throttling)
+  // But DON'T retry POST /query — it's long-running and retries make overload worse
+  const maxRetries = path === "/query" ? 0 : 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Wait 1s, 2s, 4s before retries
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+    }
+
+    const response = await fetch(runtimeApiBase + path, {
+      ...options,
+      headers
+    });
+
+    if (response.status === 503 && attempt < maxRetries) {
+      // Throttled — retry
+      continue;
+    }
+
+    const raw = await response.text();
+    let payload: unknown = raw;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch {
+      payload = raw;
+    }
+
+    onDebug?.({
+      label: `${options.method || "GET"} ${path}`,
+      payload
+    });
+
+    if (!response.ok) {
+      const detail = typeof payload === "object" && payload !== null && "detail" in payload
+        ? String((payload as { detail: unknown }).detail)
+        : null;
+      const errorMsg = detail
+        || (response.status === 500 ? `Server error on ${options.method || "GET"} ${path}` : null)
+        || (response.status === 504 ? `Request timeout on ${path} (Lambda exceeded 45s limit)` : null)
+        || (response.status === 429 ? `Rate limited on ${path}. Too many requests.` : null)
+        || `Request failed: ${response.status} ${response.statusText} on ${options.method || "GET"} ${path}`;
+      throw new ApiError(response.status, { detail: errorMsg });
+    }
+
+    return payload as T;
   }
 
-  onDebug?.({
-    label: `${options.method || "GET"} ${path}`,
-    payload
-  });
-
-  if (!response.ok) {
-    throw new ApiError(response.status, payload);
-  }
-
-  return payload as T;
-}
-
-export const api = {
+  // Should not reach here, but just in case
+  throw new ApiError(503, { detail: "Server overloaded: Lambda concurrency limit reached (10). Retried 3 times over ~7s but all attempts were throttled. Try again in a few seconds or reduce concurrent users." });
+}export const api = {
   health: (debug?: DebugCallback) => request<HealthResponse>("/health", {}, debug),
   upload: async (file: File, debug?: DebugCallback) => {
     // For files > 5MB, use presigned URL for direct S3 upload

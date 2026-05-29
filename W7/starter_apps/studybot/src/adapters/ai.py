@@ -24,8 +24,8 @@ class BedrockAI:
         self.model_id = model_id
         self.model_arn = model_arn or f"arn:aws:bedrock:{self.region}::foundation-model/{self.model_id}"
         client_config = Config(
-            connect_timeout=2,
-            read_timeout=10,
+            connect_timeout=5,
+            read_timeout=25,
             retries={"max_attempts": 1, "mode": "standard"},
         )
         self.runtime = boto3.client("bedrock-runtime", region_name=region, config=client_config)

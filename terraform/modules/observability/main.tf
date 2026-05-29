@@ -79,7 +79,7 @@ resource "aws_cloudwatch_dashboard" "this" {
         }
       },
 
-      # Row 3: S3 storage + Bedrock AI
+      # Row 3: Lambda concurrency + Bedrock AI
       {
         type   = "metric"
         x      = 0
@@ -88,16 +88,12 @@ resource "aws_cloudwatch_dashboard" "this" {
         height = 6
         properties = {
           region  = var.aws_region
-          title   = "S3 Docs Bucket — Objects & Size"
-          period  = 86400
+          title   = "Lambda — Concurrent Executions"
+          period  = 60
           metrics = [
-            ["AWS/S3", "NumberOfObjects", "BucketName", var.docs_bucket_name, "StorageType", "AllStorageTypes", { stat = "Average", color = "#7c3aed", label = "Objects" }],
-            [".", "BucketSizeBytes", ".", ".", ".", "StandardStorage", { stat = "Average", color = "#06b6d4", label = "Size (bytes)", yAxis = "right" }],
+            ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", var.lambda_name, { stat = "Maximum", color = "#7c3aed", label = "Concurrent" }],
+            ["AWS/Lambda", "UnreservedConcurrentExecutions", { stat = "Maximum", color = "#ef4444", label = "Unreserved (account)" }],
           ]
-          yAxis = {
-            right = { label = "Bytes" }
-            left  = { label = "Count" }
-          }
         }
       },
       {

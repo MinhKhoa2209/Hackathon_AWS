@@ -81,7 +81,7 @@ resource "aws_lambda_function" "api" {
   handler          = "lambda_entry.handler"
   filename         = var.lambda_package_path
   source_code_hash = fileexists(var.lambda_package_path) ? filebase64sha256(var.lambda_package_path) : null
-  timeout          = 45
+  timeout          = 90
   memory_size      = 1024
 
   dynamic "vpc_config" {
@@ -131,6 +131,7 @@ resource "aws_apigatewayv2_integration" "lambda" {
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.api.invoke_arn
   payload_format_version = "2.0"
+  timeout_milliseconds   = 30000
 }
 
 resource "aws_apigatewayv2_route" "health" {

@@ -189,7 +189,6 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
     async function boot() {
       localStorage.removeItem("studybot.summaries.v2");
@@ -212,30 +211,10 @@ export function App() {
       try { const db = await api.dashboard(addDebug); setDashboard(db); } catch { /* */ }
     }
 
-    async function poll() {
-      if (cancelled) return;
-      // Sequential to stay within concurrency limits
-      try {
-        const d = await api.listDocs(addDebug); setDocs(d.docs);
-      } catch { /* */ }
-      if (cancelled) return;
-      try {
-        const f = await api.listFlashcards(undefined, addDebug); setFlashcards(f.flashcards);
-      } catch { /* */ }
-      if (cancelled) return;
-      try {
-        const q = await api.listQuiz(undefined, addDebug); setQuiz(q.quizzes);
-      } catch { /* */ }
-    }
-
-    void boot().then(() => {
-      // Poll every 30 seconds for multi-user sync (longer interval = less throttling)
-      pollInterval = setInterval(poll, 30_000);
-    });
+    void boot();
 
     return () => {
       cancelled = true;
-      if (pollInterval) clearInterval(pollInterval);
     };
   }, [addDebug, refreshDashboard, refreshDocs]);
 

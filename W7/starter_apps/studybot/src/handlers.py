@@ -465,31 +465,6 @@ def handle_query(
             result = {"answer": FALLBACK_ANSWER, "citations": []}
         answer = result["answer"]
         citations = result["citations"]
-        weak_answer = any(
-            phrase in answer.lower()
-            for phrase in [
-                "unable to assist",
-                "couldn't find enough",
-                "could not find",
-                "no relevant",
-            ]
-        )
-        if not citations or weak_answer:
-            chunks = _fallback_search_uploaded_docs(user_id, question, storage=storage, userstore=userstore)
-            if chunks:
-                context = "\n\n".join(f"[chunk {i+1}] {c['text']}" for i, c in enumerate(chunks))
-                prompt = PROMPT_TEMPLATE.format(context=context, question=question)
-                answer = _clean_answer_response(ai_client.invoke(prompt, max_tokens=512))
-                citations = [
-                    {
-                        "chunk": i + 1,
-                        "doc_id": c["doc_id"],
-                        "filename": c.get("metadata", {}).get("filename"),
-                        "score": c["score"],
-                        "text": c["text"][:200],
-                    }
-                    for i, c in enumerate(chunks)
-                ]
     else:
         # Local path: do our own retrieve then prompt
         chunks = vector_store.search(question, top_k=5, filter={"user_id": user_id})
