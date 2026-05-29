@@ -1368,9 +1368,9 @@
               <tr>
                 <td style="color:#9CA3AF">❌</td>
                 <td class="rejected">Amazon Nova Lite</td>
-                <td>Blocked by policy</td>
-                <td>—</td>
-                <td>Blocked</td>
+                <td>Lower quality fallback</td>
+                <td>Cheaper</td>
+                <td>Fallback</td>
               </tr>
             </tbody>
           </table>
@@ -1381,14 +1381,15 @@
             <div
               style="font-size:11px;color:var(--text-sec);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">
               Latency</div>
-            <div style="font-size:32px;font-weight:800;color:var(--accent)">~3s <span
-                style="font-size:14px;font-weight:500">p50</span></div>
+            <div style="font-size:24px;font-weight:800;color:var(--accent)">39ms <span
+                style="font-size:13px;font-weight:500">P50 overall</span></div>
+            <div style="font-size:13px;color:var(--text-sec);margin-top:4px">AI query: 6-8s</div>
           </div>
           <div class="card col" style="text-align:center;padding:18px">
             <div
               style="font-size:11px;color:var(--text-sec);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">
               Demo Cost</div>
-            <div style="font-size:32px;font-weight:800;color:var(--accent)">$0.50–$2</div>
+            <div style="font-size:32px;font-weight:800;color:var(--accent)">$4-6</div>
           </div>
           <div class="card col" style="text-align:center;padding:18px">
             <div
@@ -1476,9 +1477,9 @@
         <div class="slide-subtitle anim-2">Cost Discipline</div>
 
         <div class="anim-3" style="text-align:center;margin-bottom:8px">
-          <div class="big-number">~$2–4</div>
+          <div class="big-number">~$4-6</div>
           <div style="font-size:16px;color:var(--text-sec);margin-top:4px">of $100 cap — only <strong
-              style="color:var(--success)">2–4%</strong> used</div>
+              style="color:var(--success)">4-6%</strong> used</div>
         </div>
 
         <div class="anim-4" style="width:100%;max-width:700px">
@@ -1489,15 +1490,15 @@
             </div>
           </div>
           <div class="cost-bar-wrap" style="margin-top:10px">
-            <div class="cost-bar-label"><span>Bedrock Sonnet 4.5 tokens</span><span>$0.50–$2.00 (0.5–2%)</span></div>
+            <div class="cost-bar-label"><span>Bedrock Sonnet 4.5 tokens</span><span>$2.00-$4.00 (2-4%)</span></div>
             <div class="cost-bar-track">
-              <div class="cost-bar-fill" style="width:2%;background:var(--warning)"></div>
+              <div class="cost-bar-fill" style="width:4%;background:var(--warning)"></div>
             </div>
           </div>
           <div class="cost-bar-wrap" style="margin-top:10px">
-            <div class="cost-bar-label"><span>Other (S3+CF+Lambda+DDB+CW)</span><span>&lt;$0.20 (&lt;0.2%)</span></div>
+            <div class="cost-bar-label"><span>Other (S3+CF+Lambda+DDB+CW)</span><span>&lt;$0.50 (&lt;0.5%)</span></div>
             <div class="cost-bar-track">
-              <div class="cost-bar-fill" style="width:0.2%;background:var(--success)"></div>
+              <div class="cost-bar-fill" style="width:0.5%;background:var(--success)"></div>
             </div>
           </div>
         </div>
@@ -1753,7 +1754,7 @@
         if (current === 10) {
           const fills = s11.querySelectorAll('.cost-bar-fill');
           // Scale up for visibility — multiply by 10 for visual effect
-          const widths = [19, 20, 2];
+          const widths = [19, 40, 5];
           fills.forEach((f, i) => {
             f.style.width = '0%';
             setTimeout(() => { f.style.width = widths[i] + '%'; }, 400 + i * 200);
