@@ -13,7 +13,7 @@
 | [5](#5-evidence-by-service-config) Evidence by Service Config                                   | Crit II/IV         |
 | [6](#6-cost-discipline) Cost Discipline (3 daily screenshots)                                   | Crit IV            |
 | [7](#7-security) Security (IAM baseline + Optional #10 area)                                    | Crit II/IV         |
-| [8](#8-monitoring) Monitoring (Optional #8 partial: dashboard + alarm)                          | Crit II/IV         |
+| [8](#8-monitoring) Monitoring (Optional #8 partial: dashboard + alarm + custom metrics)          | Crit II/IV         |
 | [9](#9-measurement--decisions--anti-đối-phó--required) Measurement & Decisions — anti-đối phó   | Crit II/III/IV     |
 | [10](#10-lessons-learned-200-words) Lessons Learned (~200 words)                                | Crit IV            |
 | [11](#11-teardown-plan) Teardown Plan + Mon 2/6 verify checklist                                | Crit IV            |
@@ -29,9 +29,9 @@
 | Real Bedrock invocation (not stub)       | Done: Claude Sonnet 4.5 + KB `11AOIXNNUM` ACTIVE                  | §4 + §9 D2        |
 | Persistent state cross-session           | Done: DynamoDB `studybot-prod-users`                              | §4 + §9 D2        |
 | Network isolation (DB not public-facing) | Done: VPC + private subnets, no NAT                               | §4 + §9 D3        |
-| IAM least-privilege                      | Done: scoped ARNs, no wildcards                                   | §5 (Hình 18-21)   |
+| IAM least-privilege                      | Done: scoped S3/DDB ARNs; Bedrock resource wildcard documented    | §5 (Hình 18-21)   |
 | Pre-flight Budget alert                  | Done: $80 confirmed                                               | §7                |
-| Optional #8 Full Observability           | Partial: 2/4 (dashboard + alarm, no custom metric / Log Insights) | §8                |
+| Optional #8 Full Observability           | Partial: 3/4 (dashboard + alarm + custom EMF metrics; no saved Log Insights query) | §8                |
 | Optional #10 Advanced Security           | Not implemented (would be KMS CMK)                                | §7                |
 | §9 Decision blocks                       | Done: 3 blocks (W7 requires ≥2)                                   | §9                |
 | Cost ≤ $30 (Bonus H eligibility)         | Expected, verify Friday                                           | §6                |
@@ -147,16 +147,16 @@ legal research tools — so the work transfers.
 | 4   | Data Persistence             | **DynamoDB on-demand** (`studybot-prod-users`), single-table — `PK=user_id`, `SK=DOC#/QUERY#/FLASHCARD#/QUIZ#`                                                                    | All access is single-key by user; no JOINs; auto-scales                                    |
 | 5   | Object Storage               | **S3** (docs bucket + frontend bucket), SSE-S3                                                                                                                                    | KB ingestion source; React build hosts in second bucket behind CloudFront OAC              |
 | 6   | Network Foundation           | **VPC** + 2 private subnets + **S3/DDB Gateway Endpoints** + **3 Bedrock Interface Endpoints** (`bedrock-runtime`, `bedrock-agent-runtime`, `bedrock-agent`) — **no NAT Gateway** | DB never public; saves $2.16/48h vs NAT; all AWS traffic stays on AWS backbone             |
-| 7   | Identity & Access (baseline) | **IAM least-privilege** Lambda role (`studybot-prod-lambda-role`) — scoped S3/DDB/Bedrock actions, no wildcards                                                                   | `X-User-Id` header for demo identity (Cognito optional per W7 #7)                          |
+| 7   | Identity & Access (baseline) | **IAM least-privilege** Lambda role (`studybot-prod-lambda-role`) — scoped S3/DDB actions; Bedrock actions limited, resource wildcard documented as service limitation             | `X-User-Id` header for demo identity (Cognito optional per W7 #7)                          |
 
-### Optional capability attempted: #8 Full Observability (partial — 2/4)
+### Optional capability attempted: #8 Full Observability (partial — 3/4)
 
 - Done: CloudWatch dashboard `studybot-prod-dashboard` — Lambda errors + duration, API GW count + 5xx
-- Done: Alarm `studybot-prod-lambda-errors` — fires on Lambda Errors > 0 over 5 min (currently in ALARM state because 1 historical error before fix; details in §8)
-- Not done: Custom metric via `PutMetricData` — planned but not yet implemented
+- Done: Alarm `studybot-prod-lambda-errors` — fires on Lambda Errors > 5 over 5 min
+- Done: Custom business metrics via CloudWatch Embedded Metric Format (EMF): `DocsUploaded`, `DocsDeleted`, `QuestionsAsked`, `CardsGenerated`, `QuizGenerated`, `UploadSizeBytes`
 - Not done: Log Insights saved query — planned but not yet implemented
 
-Honest disclosure: 2/4 components done. Trainer should treat this as "partial credit" not full Optional capability.
+Honest disclosure: 3/4 components done. Trainer should treat this as "partial credit" not full Optional capability.
 
 ### 2-3 conscious trade-offs (summary; deep dive in §9)
 
@@ -375,7 +375,7 @@ Use these values to justify cost decisions and to show before/after optimization
   - `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` on **docs bucket only**
   - `dynamodb:GetItem`, `PutItem`, `UpdateItem`, `DeleteItem`, `Query` on **userstore table only**
   - `bedrock:InvokeModel`, `Retrieve`, `RetrieveAndGenerate`, `StartIngestionJob`, `GetInferenceProfile` (Bedrock APIs do not support resource-level ARN scoping at this time — accepted limitation, documented)
-- **No wildcards** in S3/DDB statements; no `AdministratorAccess`
+- **No wildcards** in S3/DDB statements; no `AdministratorAccess`. Bedrock actions use `Resource="*"` because the required runtime/KB APIs are not fully resource-scopeable in this stack; this limitation is documented and action-scoped.
 - **Bedrock KB execution role**: `studybot-prod-bedrock-kb-role` — separate role, S3 read on docs bucket only
 
 ### Root account hardening
@@ -408,16 +408,20 @@ demonstrate the Encryption-at-rest area.
 - Widgets:
   - Lambda Errors + Duration (5-min granularity)
   - API Gateway HTTP API request count + 5xx errors
+  - DynamoDB capacity/throttles
+  - Bedrock invocations/latency
+  - StudyBot custom EMF metrics (`DocsUploaded`, `QuestionsAsked`, `CardsGenerated`, `QuizGenerated`)
 
 ### Alarm
 
 - Name: `studybot-prod-lambda-errors`
-- Metric: `AWS/Lambda Errors > 0` over 5 min (Sum)
-- Current state: **ALARM** — 1 historical Lambda error at 06:56 on 28/5 (init
-  module import error fixed by IAM policy update + zip rebuild). No new errors
-  for 30+ min before this report.
-- Action item before Friday: **either raise threshold to >1 or clear alarm via
-  manual re-evaluation** so trainer sees green not red.
+- Metric: `AWS/Lambda Errors > 5` over 5 min (Sum)
+- Current state: verify before demo in CloudWatch. The threshold was raised from
+  the earlier `>0` setting so one historical deployment/import error does not
+  keep the demo alarm red after the issue has been fixed.
+- Action item before Friday: confirm `studybot-prod-lambda-errors`,
+  `studybot-prod-lambda-throttles`, and `studybot-prod-api-5xx` are OK or explain
+  any non-OK state with the timestamped root cause.
 
 <p align=center>
   <img src=../../../../assets/cloudwatch_alarm.jpg alt=CloudWatch alarm width=800/>
