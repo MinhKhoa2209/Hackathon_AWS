@@ -579,6 +579,41 @@
       height: 185px;
     }
 
+    .lessons-grid {
+      width: min(1080px, 94vw);
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .lesson-card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      padding: 18px 20px;
+      text-align: left;
+      min-height: 180px;
+    }
+
+    .lesson-card h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+
+    .lesson-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-sec);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .lesson-card li + li {
+      margin-top: 7px;
+    }
+
     /* ═══════════════════════════════════════════
    COMPARISON TWO-COL
    ═══════════════════════════════════════════ */
@@ -1525,29 +1560,38 @@
         <div class="slide-title anim-1">Bài học</div>
         <div class="slide-subtitle anim-2">Lessons Learned</div>
 
-        <div class="row anim-3" style="max-width:1050px;align-items:stretch">
-          <div class="card card-green col">
-            <span class="emoji">🟢</span>
+        <div class="lessons-grid anim-3">
+          <div class="lesson-card card-green">
             <h3>What went well</h3>
             <ul>
-              <li>Adapter pattern → pivot AI backend 2× without touching business logic</li>
-              <li>Terraform modular (8 modules) → one-command teardown</li>
+              <li>Adapter pattern let us swap AI/storage/userstore/vector backends without touching business logic.</li>
+              <li>Nova Lite → Claude Sonnet 4.5 was a one-line <code>tfvars</code> change.</li>
+              <li>Terraform 8-module structure made deploy reproducible and teardown one-command.</li>
+              <li>Presigned URL upload solved the 6MB Lambda payload limit cleanly.</li>
             </ul>
           </div>
-          <div class="card card-red col">
-            <span class="emoji">🔴</span>
+          <div class="lesson-card card-red">
             <h3>What we'd do differently</h3>
             <ul>
-              <li>Lock down AWS account access Day 0</li>
-              <li>Lost ~6h: Bedrock blocked → Gemini pivot → teammate's account unblocked</li>
+              <li>Test Bedrock model access and Lambda concurrency limits on Day 0.</li>
+              <li>We lost hours debugging 503s caused by a 10-concurrent-execution account limit.</li>
+              <li>Remove redundant fallback search earlier; S3 keyword scanning caused 90s timeouts under load.</li>
             </ul>
           </div>
-          <div class="card card-yellow col">
-            <span class="emoji">🟡</span>
+          <div class="lesson-card card-yellow">
             <h3>Failure mitigated</h3>
             <ul>
-              <li>Lambda zip stripped <code>annotated_doc</code> → Pydantic ImportError</li>
-              <li>Fix: remove from strip list, rebuild, documented</li>
+              <li>Boto3 <code>read_timeout=10s</code> was too aggressive for Bedrock RetrieveAndGenerate.</li>
+              <li>Three fallback model attempts pushed total latency beyond API Gateway's 30s limit.</li>
+              <li>Fix: timeout raised to 25s and expensive S3-scanning fallback removed.</li>
+            </ul>
+          </div>
+          <div class="lesson-card">
+            <h3>Khanmigo engineer would ask</h3>
+            <ul>
+              <li>"How do you isolate notes from different subjects for the same student?"</li>
+              <li>Current scope filters by <code>user_id</code> only.</li>
+              <li>Production fix: add <code>course_id</code> metadata at KB ingestion time and filter retrieval per subject.</li>
             </ul>
           </div>
         </div>
